@@ -55,10 +55,31 @@
       <button class="btn btn-outline-secondary" type="button" @click="add">
         <i class="bi bi-plus-lg me-1"></i> Agregar
       </button>
-      <button class="btn btn-outline-secondary" type="button" @click="duplicate" :disabled="!store.selectedId">
+      <button class="btn btn-outline-secondary" type="button" @click="duplicate" :disabled="(store.selectedIds?.length || 0) === 0">
         <i class="bi bi-files me-1"></i> Duplicar
       </button>
-      <button class="btn btn-outline-danger" type="button" @click="del" :disabled="!store.selectedId">
+      <button class="btn btn-outline-secondary" type="button" @click="duplicate5" :disabled="(store.selectedIds?.length || 0) === 0">
+        <i class="bi bi-stack me-1"></i> x5
+      </button>
+
+      <button class="btn btn-outline-secondary" type="button" @click="group" :disabled="!canGroup">
+        <i class="bi bi-collection me-1"></i> Agrupar
+      </button>
+
+      <button class="btn btn-outline-secondary" type="button" @click="ungroup" :disabled="!canUngroup">
+        <i class="bi bi-collection me-1"></i> Desagrupar
+      </button>
+
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="toggleLock"
+        :disabled="(store.selectedIds?.length || 0) === 0"
+      >
+        <i :class="lockIcon" class="me-1"></i> {{ lockLabel }}
+      </button>
+
+      <button class="btn btn-outline-danger" type="button" @click="del" :disabled="(store.selectedIds?.length || 0) === 0">
         <i class="bi bi-trash me-1"></i> Eliminar
       </button>
     </div>
@@ -157,6 +178,32 @@ const lastSavedText = computed(() => {
   return d.toLocaleTimeString()
 })
 
+const canGroup = computed(() => {
+  const sel = store.selectedNodes || []
+  const unlocked = sel.filter(n => !n.locked)
+  return unlocked.length >= 2
+})
+
+const canUngroup = computed(() => {
+  const sel = store.selectedNodes || []
+  return sel.some(n => !!n.groupId)
+})
+
+const lockLabel = computed(() => {
+  const sel = store.selectedNodes || []
+  if (!sel.length) return 'Bloquear'
+  const allLocked = sel.every(n => !!n.locked)
+  return allLocked ? 'Desbloquear' : 'Bloquear'
+})
+
+const lockIcon = computed(() => {
+  const sel = store.selectedNodes || []
+  if (!sel.length) return 'bi bi-lock'
+  const allLocked = sel.every(n => !!n.locked)
+  return allLocked ? 'bi bi-unlock' : 'bi bi-lock'
+})
+
+
 onMounted(() => {
   if (modalEl.value) modal = new Modal(modalEl.value, { backdrop: 'static' })
 })
@@ -175,7 +222,25 @@ function del() {
 }
 
 function duplicate() {
-  store.duplicateSelected()
+  // si hay multi, duplica todo (si solo hay uno, igual funciona)
+  if ((store.selectedIds?.length || 0) > 1) store.duplicateSelectedMany({ count: 1, stepX: 18, stepY: 18 })
+  else store.duplicateSelected({ offset: 18 })
+}
+
+function duplicate5() {
+  store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
+}
+
+function group() {
+  store.groupSelection()
+}
+
+function ungroup() {
+  store.ungroupSelection()
+}
+
+function toggleLock() {
+  store.toggleLockSelection()
 }
 
 function toggleSnap() {

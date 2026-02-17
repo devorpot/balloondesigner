@@ -21,9 +21,13 @@
           :show="menu.show"
           :pos="menu.pos"
           :canCopy="!!store.selectedId"
-          :canPaste="!!store.clipboard?.node"
+          :canPaste="(store.clipboard?.nodes?.length || 0) > 0"
+          :canGroup="canGroup"
+          :canUngroup="canUngroup"
+          :canLock="(store.selectedIds?.length || 0) > 0"
           @action="onMenuAction"
           @close="closeMenu"
+
         />
 
         <v-stage
@@ -84,7 +88,19 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
 import ContextMenu from '@/components/editor/ContextMenu.vue'
 
+ 
 const store = useEditorStore()
+
+const canGroup = computed(() => {
+  const sel = store.selectedNodes || []
+  const unlocked = sel.filter(n => !n.locked)
+  return unlocked.length >= 2
+})
+
+const canUngroup = computed(() => {
+  const sel = store.selectedNodes || []
+  return sel.some(n => !!n.groupId)
+})
 
 const wrap = ref(null)
 const stageRef = ref(null)
@@ -565,14 +581,26 @@ function onDragEnd(node, e) {
 }
 
 function onTransformEnd(node, e) {
-  const t = e.target
-  store.updateNode(node.id, {
-    x: snapValue(t.x()),
-    y: snapValue(t.y()),
-    scaleX: t.scaleX(),
-    scaleY: t.scaleY(),
-    rotation: t.rotation(),
-  })
+  const stage = getStage()
+  if (!stage) return
+
+  const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+  if (!ids.length) return
+
+  const patchById = {}
+  for (const id of ids) {
+    const g = stage.findOne('#' + String(id))
+    if (!g) continue
+    patchById[id] = {
+      x: snapValue(g.x()),
+      y: snapValue(g.y()),
+      scaleX: g.scaleX(),
+      scaleY: g.scaleY(),
+      rotation: g.rotation(),
+    }
+  }
+
+  if (Object.keys(patchById).length) store.updateNodes(patchById)
 }
 
 /* ================== CLICK EMPTY ================== */
@@ -897,6 +925,11 @@ function onMenuAction(action) {
   }
 
   if (action === 'duplicate') store.duplicateSelected({ offset: 18 })
+  if (action === 'duplicate-5') store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
+
+  if (action === 'group') store.groupSelection()
+  if (action === 'ungroup') store.ungroupSelection()
+  if (action === 'toggle-lock') store.toggleLockSelection()
   if (action === 'delete') store.deleteSelected()
 }
 
@@ -937,6 +970,66 @@ function isTypingTarget(e) {
 function onDocKeyDown(e) {
   if (isTypingTarget(e)) return
 
+  // ESC: salir de modo pegar
+  if (e.key === 'Escape') {
+    if (store.pasteSession?.active) store.endPasteSession()
+    closeMenu()
+    return
+  }
+
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+  const mod = isMac ? e.metaKey : e.ctrlKey
+
+  // Delete
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (store.selectedIds?.length) {
+      e.preventDefault()
+      store.deleteSelected()
+    }
+    return
+  }
+
+  if (mod) {
+    const k = String(e.key || '').toLowerCase()
+
+    if (k === 'c') {
+      e.preventDefault()
+      store.copySelected()
+      return
+    }
+
+    if (k === 'v') {
+      e.preventDefault()
+      // pega cerca del centro del viewport
+      const stage = getStage()
+      const cp = stage ? getCanvasPointer(stage) : null
+      const x = cp ? cp.x : 200
+      const y = cp ? cp.y : 200
+      store.pasteFromClipboard({ x, y, offset: 18, multi: !!e.shiftKey })
+      return
+    }
+
+    if (k === 'd') {
+      e.preventDefault()
+      if (e.shiftKey) store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
+      else store.duplicateSelected({ offset: 18 })
+      return
+    }
+
+    if (k === 'g') {
+      e.preventDefault()
+      if (e.shiftKey) store.ungroupSelection()
+      else store.groupSelection()
+      return
+    }
+
+    if (k === 'l') {
+      e.preventDefault()
+      store.toggleLockSelection()
+      return
+    }
+  }
+
   if (e.code === 'Space') {
     e.preventDefault()
     if (!spaceDown.value) {
@@ -968,6 +1061,12 @@ onMounted(() => {
   document.addEventListener('mousedown', onDocMouseDown)
   document.addEventListener('keydown', onDocKeyDown)
   document.addEventListener('keyup', onDocKeyUp)
+
+    nextTick(() => {
+    const stage = getStage()
+    if (stage) store.setStage(stage)
+  })
+
 })
 
 onBeforeUnmount(() => {
