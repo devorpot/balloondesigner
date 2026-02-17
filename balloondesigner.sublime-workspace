@@ -1,0 +1,570 @@
+{
+	"auto_complete":
+	{
+		"selected_items":
+		[
+			[
+				"shadow",
+				"shadow-sm"
+			],
+			[
+				"roun",
+				"rounded-1"
+			],
+			[
+				"eva",
+				"evaluation"
+			],
+			[
+				"evalu",
+				"evaluation"
+			],
+			[
+				"PRODU",
+				"PRODUCCION"
+			],
+			[
+				"produc",
+				"PRODUCCION"
+			],
+			[
+				"desc",
+				"description"
+			],
+			[
+				"a",
+				"academiainternacionalglobos.com"
+			],
+			[
+				"text",
+				"text-muted"
+			],
+			[
+				"User",
+				"UserGalleriesController"
+			],
+			[
+				"font",
+				"font-size"
+			],
+			[
+				"teach",
+				"teachers"
+			],
+			[
+				"max",
+				"max-height"
+			],
+			[
+				"border-",
+				"border-bottom"
+			],
+			[
+				"border",
+				"border-0"
+			],
+			[
+				"he",
+				"height"
+			],
+			[
+				"flex-",
+				"flex-fill"
+			],
+			[
+				"fill",
+				"flex-fill"
+			],
+			[
+				"just",
+				"justify-content-center"
+			],
+			[
+				"rounded",
+				"rounded-3"
+			],
+			[
+				"bac",
+				"background"
+			],
+			[
+				"route",
+				"route('dashboard.courses.evaluations.index"
+			],
+			[
+				"VideoCardRe",
+				"VideoCardResources.vue"
+			],
+			[
+				"academi",
+				"academiainternacionalglobos"
+			],
+			[
+				"lastV",
+				"lastVideoIdLesson"
+			],
+			[
+				"lastVideo",
+				"lastVideoIdLesson"
+			],
+			[
+				"selec",
+				"selected_course"
+			],
+			[
+				"FieldTe",
+				"FieldText"
+			],
+			[
+				"align",
+				"align-items-center"
+			],
+			[
+				"eval",
+				"evaluations"
+			],
+			[
+				"Image",
+				"ImageThumb"
+			],
+			[
+				"re",
+				"request"
+			],
+			[
+				"over",
+				"overflow"
+			],
+			[
+				"h",
+				"height"
+			],
+			[
+				"min-",
+				"min-width"
+			],
+			[
+				"text-",
+				"text-transform"
+			],
+			[
+				"delete",
+				"deleteVideo"
+			],
+			[
+				"payment_sta",
+				"payment_status_id"
+			],
+			[
+				"payment_re",
+				"payment_refund"
+			],
+			[
+				"payment_s",
+				"payment_stripe_id"
+			],
+			[
+				"payment_",
+				"payment_stripe_id"
+			],
+			[
+				"FieldS",
+				"FieldSwitch"
+			],
+			[
+				"curren",
+				"currency_id"
+			],
+			[
+				"curre",
+				"currency_id"
+			],
+			[
+				"FieldSele",
+				"FieldSelectApi"
+			],
+			[
+				"place",
+				"placehold.co"
+			],
+			[
+				"Da",
+				"Dashboard"
+			],
+			[
+				"studen",
+				"students"
+			],
+			[
+				"Cer",
+				"Certificates"
+			],
+			[
+				"align-items",
+				"align-items-center"
+			],
+			[
+				"Exposici",
+				"exposición"
+			],
+			[
+				"He",
+				"Heading1"
+			],
+			[
+				"background",
+				"background-color"
+			],
+			[
+				"bg-colo",
+				"bg-color-3"
+			],
+			[
+				"b",
+				"bg-color-3"
+			],
+			[
+				"back",
+				"background-image"
+			],
+			[
+				"font-",
+				"font-size"
+			],
+			[
+				"margin-",
+				"margin-top"
+			],
+			[
+				"tex",
+				"text-align"
+			],
+			[
+				"bg-color",
+				"bg-color-6"
+			],
+			[
+				"max-",
+				"max-width"
+			],
+			[
+				"displ",
+				"display-6"
+			]
+		]
+	},
+	"buffers":
+	[
+	],
+	"build_system": "",
+	"build_system_choices":
+	[
+	],
+	"build_varint": "",
+	"command_palette":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+			[
+				"pa",
+				"Package Control: Install Package"
+			],
+			[
+				"pacake",
+				"Package Control: Install Package"
+			],
+			[
+				"packa",
+				"Install Package Control"
+			]
+		],
+		"width": 0.0
+	},
+	"console":
+	{
+		"height": 0.0,
+		"history":
+		[
+		]
+	},
+	"distraction_free":
+	{
+		"menu_visible": true,
+		"show_minimap": false,
+		"show_open_files": false,
+		"show_tabs": false,
+		"side_bar_visible": false,
+		"status_bar_visible": false
+	},
+	"expanded_folders":
+	[
+		"/mnt/desarrollo/apps/vue/ballonpro"
+	],
+	"file_history":
+	[
+		"/mnt/desarrollo/apps/vue/ballonpro/balloondesigner",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/router/index.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/main.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/App.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/layouts/EditorLayout.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/pages/EditorView.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/ToolbarTop.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/CanvasStage.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/stores/catalog.store.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/SidebarCatalog.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/LayerPanel.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/PropertiesPanel.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/stores/editor.store.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/MaterialsPanel.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/assets/styles/main.less",
+		"/mnt/desarrollo/apps/vue/ballonpro/.gitignore",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/router/routes.editor.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/pages/editor/EditorView.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/components/editor/<template>.vue",
+		"/mnt/desarrollo/apps/vue/demo/src/pages/Index.vue",
+		"/mnt/desarrollo/apps/vue/invitacion/src/App.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/core/editor/ids.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/core/editor/serializer.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/core/editor/history.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/core/editor/engine.js",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/views/EditorView.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/views/editor/ToolbarTop.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/views/editor/SidebarCatalog.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/views/editor/LayerPanel.vue",
+		"/mnt/desarrollo/apps/vue/ballonpro/src/views/editor/PropertiesPanel.vue",
+		"/mnt/desarrollo/apps/vue/base/src/router/index.js",
+		"/mnt/desarrollo/apps/vue/base/src/pages/Index.vue",
+		"/media/daniel/SERVIDOR1/pwd.htaccess",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/footer.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--home.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--gallery-modulares.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--gallery-octanorm.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--metodologia.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--contacto.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--stand-octanorm.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-cotizar-stand.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--servicios-escenografias.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--servicios-retail.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/partials/_header.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--gallery-custom.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--gallery.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-cta.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-services.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--stand-custom.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-testimonals.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-logos-carousel.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--stand-modulares.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--empresa.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-logos-rows.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--industrias.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--faqs.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-contact.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-hero-bottom-contact.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/template-parts/strap-hero.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/AGENTS.md",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/config.site.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/home.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/page-site.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/_footer.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/theme/partials/_scripts.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/config.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/theme/pages/page--home.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/.htaccess",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/theme/partials/_footer.php",
+		"/media/daniel/EXT_BACKUP/TEMPLATES/foody-130/foody-130/foody-v3/index.html",
+		"/mnt/desarrollo/sh/processwire.sh",
+		"/mnt/desarrollo/server/processwire/site-orpotnet/templates/_header.php",
+		"/mnt/desarrollo/server/processwire/index.config.php",
+		"/mnt/desarrollo/server/processwire/site-orpotnet_/config.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--stand-portatiles.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/pages/page--fabricacion.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-config.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare/header.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/plugins/whatsapp-for-wordpress/includes/nta-whatsapp-popup.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/wp-content/plugins/image-regenerate-select-crop/image-regenerate-select-crop.php",
+		"/mnt/desarrollo/server/wordpress/comunicare/.htaccess",
+		"/mnt/desarrollo/cv/cvonline/ARCHITECTURE.md",
+		"/mnt/desarrollo/cv/cvonline/CONTRIBUTING.md",
+		"/mnt/desarrollo/cv/cvonline/astro.config.mjs",
+		"/mnt/desarrollo/cv/cvonline/src/pages/index.astro",
+		"/mnt/desarrollo/cv/cvonline/src/layouts/PortfolioLayout.astro",
+		"/mnt/desarrollo/sh/wordpress.sh",
+		"/mnt/desarrollo/cv/cvonline/opencode.md",
+		"/mnt/desarrollo/cv/cvonline/package.json",
+		"/mnt/desarrollo/cv/cvonline/package-lock.json",
+		"/mnt/desarrollo/cv/cvonline/README.md",
+		"/mnt/desarrollo/cv/cvonline/SPEC.md",
+		"/mnt/desarrollo/cv/cvonline/STYLE.md",
+		"/mnt/desarrollo/cv/cvonline/tsconfig.json",
+		"/mnt/desarrollo/cv/cvonline/.gitignore",
+		"/mnt/desarrollo/sh/create_host.sh",
+		"/mnt/desarrollo/test/test1/src/views/NosotrosView.vue",
+		"/home/daniel/Descargas/Backup-codes-info.txt",
+		"/mnt/desarrollo/test/test1/AGENTS.md",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Components/Dashboard/Courses/CourseCardIndex.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Frontend/Dashboard/Index.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Frontend/Evaluations/All.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Evaluations/Users/All.vue",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/themes/tractosoft/pages/page-novedades.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/orpot-slider.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/includes/ctp.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/includes/meta.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/includes/admin-page.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/assets/admin/admin.js",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/assets/admin/admin.css",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/includes/shortcode.php",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/assets/frontend/frontend.js",
+		"/mnt/desarrollo/server/wp/tractosoft/wp-content/plugins/orpot-slider/assets/frontend/frontend.css",
+		"/media/daniel/SERVIDOR1/httpd/academia/app/Http/Controllers/Admin/EvaluationUsersController.php",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Evaluations/Users/Index.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Evaluations/Users/ShowForm.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Evaluations/Users/ShowQuiz.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Evaluations/Users/ShowEvaluationLayout.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/app/Http/Controllers/Admin/CertificateController.php",
+		"/media/daniel/SERVIDOR1/httpd/academia/app/Models/Certificate.php",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Components/Admin/Ui/Navbar.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/.env",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Certificates/Index.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Certificates/CreateCertificateModal.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Certificates/Edit.vue",
+		"/media/daniel/SERVIDOR1/httpd/academia/config/filesystems.php",
+		"/media/daniel/SERVIDOR1/httpd/academia/app/Http/Controllers/Admin/CertificateTemplateController.php",
+		"/media/daniel/SERVIDOR1/httpd/academia/resources/js/Pages/Admin/Certificates/ShowCertificateModal.vue"
+	],
+	"find":
+	{
+		"height": 53.0
+	},
+	"find_in_files":
+	{
+		"height": 283.0,
+		"where_history":
+		[
+			"/mnt/desarrollo/server/wordpress/comunicare/wp-content/themes/comunicare"
+		]
+	},
+	"find_state":
+	{
+		"case_sensitive": false,
+		"find_history":
+		[
+			"materialsSummary",
+			"ellipseConfig",
+			"downloadJson",
+			"<div class=\"col-12 col-sm-6 col-lg-4\">",
+			">\n",
+			"Custom",
+			"Diseño y Fabricación de Stands Modulares",
+			"                        \n",
+			"Nuesro Trabajo habla por nosotros."
+		],
+		"highlight": true,
+		"in_selection": false,
+		"preserve_case": false,
+		"regex": false,
+		"replace_history":
+		[
+			"<div class=\"col-12 col-sm-6 col-lg-4 my-2\">",
+			"Nuestro Trabajo habla por nosotros."
+		],
+		"reverse": false,
+		"scrollbar_highlights": true,
+		"show_context": true,
+		"use_buffer2": true,
+		"use_gitignore": true,
+		"whole_word": false,
+		"wrap": true
+	},
+	"groups":
+	[
+		{
+			"sheets":
+			[
+			]
+		}
+	],
+	"incremental_find":
+	{
+		"height": 41.0
+	},
+	"input":
+	{
+		"height": 97.0
+	},
+	"layout":
+	{
+		"cells":
+		[
+			[
+				0,
+				0,
+				1,
+				1
+			]
+		],
+		"cols":
+		[
+			0.0,
+			1.0
+		],
+		"rows":
+		[
+			0.0,
+			1.0
+		]
+	},
+	"menu_visible": true,
+	"output.find_results":
+	{
+		"height": 0.0
+	},
+	"pinned_build_system": "Packages/lessc/lessc.sublime-build",
+	"project": "balloondesigner.sublime-project",
+	"replace":
+	{
+		"height": 78.0
+	},
+	"save_all_on_build": true,
+	"select_file":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"select_project":
+	{
+		"height": 500.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 380.0
+	},
+	"select_symbol":
+	{
+		"height": 0.0,
+		"last_filter": "",
+		"selected_items":
+		[
+		],
+		"width": 0.0
+	},
+	"selected_group": 0,
+	"settings":
+	{
+	},
+	"show_minimap": true,
+	"show_open_files": true,
+	"show_tabs": true,
+	"side_bar_visible": true,
+	"side_bar_width": 448.0,
+	"status_bar_visible": true,
+	"template_settings":
+	{
+	}
+}
