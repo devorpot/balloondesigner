@@ -25,6 +25,27 @@
       </div>
 
       <div v-else class="vstack gap-3" v-show="!collapsed">
+        <section v-if="selectedGroup" class="props-section">
+          <div class="section-title">Grupo</div>
+          <div class="text-muted small">
+            {{ selectedGroup.name }} · {{ selectedGroup.childCount }}
+          </div>
+          <div class="form-check form-switch mt-2">
+            <input
+              id="group-edit-mode"
+              v-model="groupEditMode"
+              class="form-check-input"
+              type="checkbox"
+            />
+            <label class="form-check-label small" for="group-edit-mode">
+              Editar elementos dentro del grupo
+            </label>
+          </div>
+          <div class="text-muted small mt-2">
+            Activa para seleccionar un globo del grupo directamente en el canvas.
+          </div>
+        </section>
+
         <!-- Acciones -->
         <div class="props-actions">
           <button
@@ -414,6 +435,24 @@ const editor = useEditorStore()
 const catalog = useCatalogStore()
 
 const selected = computed(() => editor.selectedNode)
+const selectedGroup = computed(() => {
+  const groupId = editor.selectedGroupId || selected.value?.groupId
+  if (!groupId) return null
+  const groups = Array.isArray(editor.groups) ? editor.groups : []
+  const group = groups.find((g) => String(g.id) === String(groupId))
+  if (!group) return null
+  return {
+    id: group.id,
+    name: group.name || 'Grupo',
+    childCount: Array.isArray(group.childIds) ? group.childIds.length : 0,
+  }
+})
+const groupEditMode = computed({
+  get: () => editor.ui?.groupEditMode ?? false,
+  set: (value) => {
+    editor.setGroupEditMode({ enabled: !!value, groupId: selectedGroup.value?.id })
+  },
+})
 const isText = computed(() => selected.value?.kind === 'text')
 const catalogTypes = computed(() => catalog.types || [])
 const collapsed = ref(false)

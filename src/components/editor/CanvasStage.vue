@@ -12,6 +12,69 @@
           </span>
           <span v-else>Modo area · rellenar guia</span>
         </div>
+        <div v-if="groupEditMode && groupEditGroup" class="group-edit-hint">
+          Editando grupo: <span class="fw-semibold">{{ groupEditGroup.name }}</span>
+          <span class="text-muted">· Esc para salir</span>
+        </div>
+        <div v-if="toolbarVisible" class="float-toolbar" :style="toolbarStyle">
+          <button
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Duplicar"
+            @click="onToolbarDuplicate"
+          >
+            <i class="bi bi-files"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Girar izquierda"
+            :disabled="toolbarAngle <= -180"
+            @click="onToolbarRotate(-10)"
+          >
+            <i class="bi bi-arrow-counterclockwise"></i>
+          </button>
+          <div
+            class="angle-chip"
+            :class="{ limit: Math.abs(toolbarAngle) >= 180 }"
+            :title="`Rotacion ${toolbarAngle}°`"
+          >
+            {{ toolbarAngle }}°
+          </div>
+          <button
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Girar derecha"
+            :disabled="toolbarAngle >= 180"
+            @click="onToolbarRotate(10)"
+          >
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Enviar atras"
+            @click="onToolbarSendBackward"
+          >
+            <i class="bi bi-layer-backward"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Traer al frente"
+            @click="onToolbarBringForward"
+          >
+            <i class="bi bi-layer-forward"></i>
+          </button>
+          <button
+            class="btn btn-sm btn-light icon-btn text-danger"
+            type="button"
+            title="Eliminar"
+            @click="onToolbarDelete"
+          >
+            <i class="bi bi-trash"></i>
+          </button>
+        </div>
         <ContextMenu
           :show="menu.show"
           :pos="menu.pos"
@@ -29,21 +92,24 @@
           @wheel="onWheel"
           @mousedown="onStagePointerDown"
           @mousemove="onStagePointerMove"
-          @click="onStageClick"
+          @pointerdown="onStageClick"
           @contextmenu="onStageContextMenu"
           @touchstart="onStageTouchStart"
           @touchmove="onStageTouchMove"
           @touchend="onStageTouchEnd"
           @touchcancel="onStageTouchEnd"
-          @tap="onStageClick"
+          @dblclick="onStageDoubleClick"
+          @dbltap="onStageDoubleClick"
         >
-          <!-- BG + GRID -->
-          <v-layer>
+          <!-- BG -->
+          <v-layer :config="{ listening: false }">
             <v-rect :config="bgConfig" />
-            <template v-if="store.settings.grid">
-              <v-line v-for="l in gridLines" :key="l.key" :config="l.cfg" />
-            </template>
           </v-layer>
+
+          <!-- GRID (fast layer) -->
+          <v-fast-layer v-if="store.settings.grid" :config="{ listening: false }">
+            <v-line v-for="l in gridLines" :key="l.key" :config="l.cfg" />
+          </v-fast-layer>
 
           <!-- NODES -->
           <v-layer ref="layerRef">
@@ -58,6 +124,8 @@
                 @dragmove="onDragMove(node, $event)"
                 @dragend="onDragEnd(node, $event)"
                 @transformend="onTransformEnd"
+                @dblclick="onNodeDoubleClick(node, $event)"
+                @dbltap="onNodeDoubleClick(node, $event)"
               >
                 <template v-if="isTextNode(node)">
                   <v-text :config="textConfig(node)" />
@@ -102,6 +170,35 @@ const canUngroup = computed(() => {
   const sel = store.selectedNodes || []
   return sel.some((n) => !!n.groupId)
 })
+
+const groupEditMode = computed(() => !!store.ui?.groupEditMode)
+const groupEditGroup = computed(() => {
+  const gid = store.selectedGroupId
+  if (!gid) return null
+  const groups = Array.isArray(store.groups) ? store.groups : []
+  return groups.find((g) => String(g.id) === String(gid)) || null
+})
+const toolbarVisible = computed(() => (store.selectedIds?.length || 0) === 1 && !!store.selectedId)
+const toolbarStyle = computed(() => {
+  const node = store.selectedNode
+  if (!node) return {}
+  const rs = renderScale.value
+  const dx = store.view.x * displayScale.value
+  const dy = store.view.y * displayScale.value
+  const { ry } = nodeHalfSize(node)
+  const rawX = node.x * rs + dx
+  const rawY = (node.y - ry) * rs + dy - 44
+  const maxW = size.value?.w || 0
+  const maxH = size.value?.h || 0
+  const toolbarW = 220
+  const toolbarH = 44
+  const x = clamp(rawX, 8, Math.max(8, maxW - toolbarW - 8))
+  const y = clamp(rawY, 8, Math.max(8, maxH - toolbarH - 8))
+  return {
+    transform: `translate(${Math.round(x)}px, ${Math.round(y)}px)`,
+  }
+})
+const toolbarAngle = computed(() => Math.round(Number(store.selectedNode?.rotation || 0)))
 
 const wrap = ref(null)
 const stageRef = ref(null)
@@ -166,7 +263,7 @@ const bgConfig = computed(() => ({
   fill: store.canvas?.backgroundColor || '#ffffff',
   id: 'bg',
   name: 'bg',
-  listening: true,
+  listening: false,
 }))
 
 const transformerConfig = {
@@ -284,6 +381,7 @@ function ellipseConfig(n) {
     fill: n.color,
     stroke: 'rgba(0,0,0,.10)',
     strokeWidth: 1,
+    hitStrokeWidth: 0,
     listening: true,
     perfectDrawEnabled: false,
   }
@@ -301,6 +399,7 @@ function textConfig(n) {
     fill: String(meta.fill || n.color || '#222222'),
     align: String(meta.align || 'left'),
     width: Number.isFinite(Number(meta.width)) ? Number(meta.width) : 220,
+    listening: false,
   }
 }
 
@@ -325,6 +424,7 @@ function imageConfig(n) {
     image: img || null,
     width,
     height,
+    listening: false,
   }
 }
 
@@ -717,6 +817,10 @@ function onNodePointerDown(node, e) {
   if (node?.locked) return
   if (node?.meta?.guide) return
 
+  if (groupEditMode.value && store.selectedGroupId) {
+    if (!node.groupId || String(node.groupId) !== String(store.selectedGroupId)) return
+  }
+
   if (e?.cancelBubble !== undefined) e.cancelBubble = true
   if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
 
@@ -731,7 +835,7 @@ function onNodePointerDown(node, e) {
     return
   }
 
-  if (!append && !mod && node.groupId) {
+  if (!append && !mod && node.groupId && !store.ui?.groupEditMode) {
     store.selectGroup(node.groupId)
     closeMenu()
     return
@@ -798,16 +902,27 @@ function onDragStart(node, e) {
   const stage = getStage()
   if (!stage) return
 
-  const selected = store.selectedNodes.filter((n) => !n.locked)
+  let selected = store.selectedNodes.filter((n) => !n.locked)
+
+  if (store.selectedGroupId && !groupEditMode.value) {
+    const group = (store.groups || []).find((g) => String(g.id) === String(store.selectedGroupId))
+    if (group && Array.isArray(group.childIds)) {
+      const nodeById = new Map(store.nodes.map((n) => [String(n.id), n]))
+      selected = group.childIds.map((id) => nodeById.get(String(id))).filter((n) => n && !n.locked)
+    }
+  }
+
   const groupIds = selected.map((n) => n.id)
 
+  const isGroupDrag = !!store.selectedGroupId && !groupEditMode.value
   dragSession = {
     anchorId: node.id,
     startAnchor: { x: t.x(), y: t.y() },
     ids: groupIds,
     startPos: new Map(),
-    candidates: buildSnapCandidates(groupIds),
+    candidates: isGroupDrag ? { xs: [], ys: [] } : buildSnapCandidates(groupIds),
     anchorModel: store.nodes.find((n) => n.id === node.id) || node,
+    disableSnap: isGroupDrag,
   }
 
   for (const id of groupIds) {
@@ -821,20 +936,15 @@ function onDragStart(node, e) {
 
 function onDragMove(node, e) {
   if (!dragSession) return
-  if (renderQuality.value === 'low') {
-    pendingDrag = { node, e }
-    if (!dragRaf) {
-      dragRaf = requestAnimationFrame(() => {
-        const payload = pendingDrag
-        pendingDrag = null
-        dragRaf = null
-        if (payload) handleDragMove(payload.node, payload.e)
-      })
-    }
-    return
+  pendingDrag = { node, e }
+  if (!dragRaf) {
+    dragRaf = requestAnimationFrame(() => {
+      const payload = pendingDrag
+      pendingDrag = null
+      dragRaf = null
+      if (payload) handleDragMove(payload.node, payload.e)
+    })
   }
-
-  handleDragMove(node, e)
 }
 
 function handleDragMove(node, e) {
@@ -847,12 +957,14 @@ function handleDragMove(node, e) {
 
   const startA = dragSession.startAnchor
 
-  let ax = snapValue(t.x())
-  let ay = snapValue(t.y())
+  let ax = dragSession.disableSnap ? t.x() : snapValue(t.x())
+  let ay = dragSession.disableSnap ? t.y() : snapValue(t.y())
 
   const anchorModel = dragSession.anchorModel
   const box = nodeBoxAt(anchorModel, ax, ay)
-  const snapped = snapBoxToGuides(box, dragSession.candidates)
+  const snapped = dragSession.disableSnap
+    ? { dx: 0, dy: 0, gx: null, gy: null }
+    : snapBoxToGuides(box, dragSession.candidates)
 
   if (snapped.dx || snapped.dy) {
     ax += snapped.dx
@@ -861,9 +973,11 @@ function handleDragMove(node, e) {
 
   t.position({ x: ax, y: ay })
 
-  guides.value = {
-    x: snapped.gx ? { value: snapped.gx.value, type: snapped.gx.type } : null,
-    y: snapped.gy ? { value: snapped.gy.value, type: snapped.gy.type } : null,
+  if (!dragSession.disableSnap) {
+    guides.value = {
+      x: snapped.gx ? { value: snapped.gx.value, type: snapped.gx.type } : null,
+      y: snapped.gy ? { value: snapped.gy.value, type: snapped.gy.type } : null,
+    }
   }
 
   const dx = ax - startA.x
@@ -952,8 +1066,20 @@ function onStageClick(e) {
 
   if (clickedOnStage || clickedOnBg) {
     clearGuides()
-    store.clearSelection()
+    if (!groupEditMode.value) store.clearSelection()
   }
+}
+
+function onNodeDoubleClick(node, e) {
+  if (!node?.groupId) return
+  if (e?.cancelBubble !== undefined) e.cancelBubble = true
+  if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
+  store.setGroupEditMode({ enabled: true, groupId: node.groupId })
+}
+
+function onStageDoubleClick() {
+  if (!groupEditMode.value) return
+  store.setGroupEditMode({ enabled: false })
 }
 
 /* ================== ZOOM (wheel) ================== */
@@ -1074,6 +1200,8 @@ function onStagePointerDown(e) {
   const evt = e.evt
   const stage = getStage()
   if (!stage) return
+
+  if (groupEditMode.value) return
 
   // si estás en panMode, pan con click izquierdo también
   const canPan = isPanShortcut(evt) || (panMode.value && evt?.button === 0)
@@ -1326,15 +1454,47 @@ function onStageContextMenu(e) {
     const id = group?.id?.() || target?.id?.()
     if (id) {
       const model = store.nodes.find((n) => String(n.id) === String(id))
-      if (model && !model.locked) store.select(String(id))
+      if (
+        model &&
+        !model.locked &&
+        (!groupEditMode.value ||
+          (model.groupId && String(model.groupId) === String(store.selectedGroupId)))
+      ) {
+        store.select(String(id))
+      }
     }
   } else {
-    store.clearSelection()
+    if (!groupEditMode.value) store.clearSelection()
   }
 
   const cp = getCanvasPointer(stage)
   if (!cp) return
   openMenu(e.evt.clientX, e.evt.clientY, cp.x, cp.y)
+}
+
+function onToolbarDuplicate() {
+  if (!store.selectedId) return
+  store.duplicateSelected({ offset: 18 })
+}
+
+function onToolbarDelete() {
+  if (!store.selectedId) return
+  store.deleteSelected()
+}
+
+function onToolbarRotate(delta) {
+  const node = store.selectedNode
+  if (!node) return
+  const next = clamp(Number(node.rotation || 0) + delta, -180, 180)
+  store.updateNode(node.id, { rotation: next })
+}
+
+function onToolbarBringForward() {
+  store.bringForwardSelected?.()
+}
+
+function onToolbarSendBackward() {
+  store.sendBackwardSelected?.()
 }
 
 /* ================== KEYBOARD (Space pan) ================== */
@@ -1520,5 +1680,60 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   font-weight: 600;
   z-index: 10;
+}
+
+.group-edit-hint {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(37, 99, 235, 0.9);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  z-index: 10;
+}
+
+.float-toolbar {
+  position: absolute;
+  display: flex;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  box-shadow: 0 10px 18px -12px rgba(0, 0, 0, 0.3);
+  z-index: 11;
+}
+
+.float-toolbar .icon-btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.angle-chip {
+  min-width: 44px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: rgba(13, 110, 253, 0.1);
+  color: #1f3b7a;
+  font-size: 0.72rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(13, 110, 253, 0.2);
+}
+
+.angle-chip.limit {
+  background: rgba(220, 53, 69, 0.15);
+  color: #8b1e2d;
+  border-color: rgba(220, 53, 69, 0.35);
 }
 </style>

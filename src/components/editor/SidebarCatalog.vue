@@ -29,6 +29,17 @@
               </option>
             </select>
           </div>
+          <div class="mt-2">
+            <button
+              class="btn btn-sm btn-primary w-100"
+              type="button"
+              :disabled="!quickAddType"
+              @click="addQuickType"
+            >
+              Agregar globo
+            </button>
+            <div class="text-muted xsmall mt-1">Usa el primer tipo de la familia seleccionada.</div>
+          </div>
         </div>
       </div>
 
@@ -144,15 +155,49 @@ onMounted(() => {
   if (typeof catalog.init === 'function') return catalog.init()
 })
 
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem('catalog_last_type_id')
+    if (saved) lastAddedTypeId.value = saved
+  } catch {
+    // ignore
+  }
+})
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem('catalog_last_color')
+    if (saved) lastAddedColor.value = saved
+  } catch {
+    // ignore
+  }
+})
+
 const currentColor = computed(() => editor.selectedNode?.color || '#ff3b30')
 const categories = computed(() => catalog.categories || [])
 const families = computed(() => categories.value.map((category) => category.family))
 const collapsed = ref(false)
 const selectedFamily = ref('')
+const lastAddedTypeId = ref('')
+const lastAddedColor = ref('')
 const visibleCategories = computed(() => {
   if (!selectedFamily.value) return categories.value
   return categories.value.filter((category) => category.family === selectedFamily.value)
 })
+const quickAddType = computed(() => {
+  if (lastAddedTypeId.value) {
+    for (const category of categories.value || []) {
+      const match = (category.types || []).find((t) => t.id === lastAddedTypeId.value)
+      if (match) return match
+    }
+  }
+  const cats = visibleCategories.value || []
+  for (const category of cats) {
+    if (category?.types?.length) return category.types[0]
+  }
+  return null
+})
+const quickAddColor = computed(() => lastAddedColor.value || currentColor.value)
 const expandedCategories = ref(new Set())
 
 watch(
@@ -236,17 +281,46 @@ function getAddPoint({ center = false } = {}) {
 
 function addType(type, opts = {}) {
   const p = getAddPoint({ center: !!opts.center })
+  lastAddedTypeId.value = type?.id || ''
+  try {
+    if (lastAddedTypeId.value) localStorage.setItem('catalog_last_type_id', lastAddedTypeId.value)
+  } catch {
+    // ignore
+  }
+  lastAddedColor.value = currentColor.value
+  try {
+    if (lastAddedColor.value) localStorage.setItem('catalog_last_color', lastAddedColor.value)
+  } catch {
+    // ignore
+  }
   editor.addNode({
     x: p.x,
     y: p.y,
-    color: currentColor.value,
+    color: quickAddColor.value,
     typeId: type.id,
     meta: defaultMetaForType(type),
   })
 }
 
+function addQuickType() {
+  if (!quickAddType.value) return
+  addType(quickAddType.value, { center: true })
+}
+
 function onDragStartType(t, e) {
-  const payload = { typeId: t.id, meta: defaultMetaForType(t), color: currentColor.value }
+  lastAddedTypeId.value = t?.id || ''
+  try {
+    if (lastAddedTypeId.value) localStorage.setItem('catalog_last_type_id', lastAddedTypeId.value)
+  } catch {
+    // ignore
+  }
+  lastAddedColor.value = currentColor.value
+  try {
+    if (lastAddedColor.value) localStorage.setItem('catalog_last_color', lastAddedColor.value)
+  } catch {
+    // ignore
+  }
+  const payload = { typeId: t.id, meta: defaultMetaForType(t), color: quickAddColor.value }
   try {
     e.dataTransfer.effectAllowed = 'copy'
     e.dataTransfer.setData('application/x-ballon-type', JSON.stringify(payload))

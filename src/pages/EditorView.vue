@@ -138,7 +138,19 @@ function onKeyDown(e) {
   const isCmd = e.metaKey || e.ctrlKey
 
   if (key === 'escape') {
+    if (store.ui?.groupEditMode) {
+      store.setGroupEditMode({ enabled: false })
+      return
+    }
     store.clearSelection()
+    return
+  }
+
+  if (key === 'enter' && !isTypingTarget(e)) {
+    if (!store.ui?.groupEditMode) {
+      const groupId = store.selectedGroupId || store.selectedNode?.groupId
+      if (groupId) store.setGroupEditMode({ enabled: true, groupId })
+    }
     return
   }
 

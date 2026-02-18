@@ -127,6 +127,21 @@
             </div>
           </div>
 
+          <div class="arc-quick mt-2">
+            <button class="btn btn-sm btn-primary w-100" type="button" @click="insertArcQuick">
+              Insertar arco
+            </button>
+            <div class="text-muted xsmall mt-1">Usa el globo actual y el tamano del catalogo.</div>
+          </div>
+
+          <button
+            class="btn btn-sm btn-light w-100 mt-2"
+            type="button"
+            @click="arcAdvanced = !arcAdvanced"
+          >
+            {{ arcAdvanced ? 'Ocultar opciones' : 'Opciones' }}
+          </button>
+
           <div class="template-preview mt-2">
             <svg viewBox="0 0 140 90" width="140" height="90" aria-hidden="true">
               <circle
@@ -141,7 +156,7 @@
             </svg>
           </div>
 
-          <div class="row g-2 mt-2">
+          <div class="row g-2 mt-2" v-show="arcAdvanced">
             <div class="col-6">
               <label class="form-label xsmall">Ancho</label>
               <input
@@ -174,10 +189,14 @@
             </div>
             <div class="col-6">
               <label class="form-label xsmall">Filas</label>
-              <select v-model.number="arc.rows" class="form-select form-select-sm">
-                <option :value="1">1 fila</option>
-                <option :value="2">2 filas</option>
-              </select>
+              <input
+                v-model.number="arc.rows"
+                type="number"
+                min="1"
+                max="6"
+                step="1"
+                class="form-control form-control-sm"
+              />
             </div>
             <div class="col-6">
               <label class="form-label xsmall">Radio</label>
@@ -217,6 +236,28 @@
               </div>
             </div>
             <div class="col-12">
+              <label class="form-label xsmall">Globo</label>
+              <select
+                v-model="arc.typeId"
+                class="form-select form-select-sm"
+                @change="applyArcTypeDefaults"
+              >
+                <option v-for="t in catalogTypes" :key="t.id" :value="t.id">
+                  {{ t.name }}
+                </option>
+              </select>
+              <button
+                class="btn btn-sm btn-light w-100 mt-2"
+                type="button"
+                @click="applyArcTypeDefaults"
+              >
+                Usar tamano del tipo
+              </button>
+              <div class="text-muted xsmall mt-1">
+                El arco usa el mismo tamano que el globo del catalogo.
+              </div>
+            </div>
+            <div class="col-12">
               <div class="form-check form-switch mt-1">
                 <input
                   id="arc-group"
@@ -242,11 +283,16 @@
             </div>
           </div>
 
-          <button class="btn btn-sm btn-primary w-100 mt-3" type="button" @click="insertArc">
-            Insertar arco
+          <button
+            class="btn btn-sm btn-outline-primary w-100 mt-3"
+            type="button"
+            @click="insertArc"
+            v-show="arcAdvanced"
+          >
+            Insertar arco avanzado
           </button>
 
-          <div class="preset-row mt-2">
+          <div class="preset-row mt-2" v-show="arcAdvanced">
             <button class="btn btn-sm btn-light" type="button" @click="insertArcPreset('front')">
               Arco frontal
             </button>
@@ -255,7 +301,7 @@
             </button>
           </div>
 
-          <div class="preset-previews mt-2">
+          <div class="preset-previews mt-2" v-show="arcAdvanced">
             <div class="preset-preview">
               <div class="text-muted xsmall">Front</div>
               <svg viewBox="0 0 140 70" width="140" height="70" aria-hidden="true">
@@ -287,7 +333,7 @@
           </div>
         </div>
 
-        <div class="template-card">
+        <div class="template-card" v-if="showCluster">
           <div class="d-flex align-items-center justify-content-between">
             <div class="fw-semibold">Cluster</div>
             <div class="d-flex align-items-center gap-2">
@@ -308,6 +354,31 @@
                 fill-opacity="0.35"
               />
             </svg>
+          </div>
+
+          <div class="cluster-picker mt-2">
+            <div class="d-flex align-items-center justify-content-between">
+              <label class="form-label xsmall mb-0">Globos del cluster</label>
+              <span v-if="clusterGroup" class="text-muted xsmall">
+                {{ clusterGroupLabel }} · {{ clusterNodes.length }}
+              </span>
+              <span v-else class="text-muted xsmall">Selecciona un grupo</span>
+            </div>
+            <div v-if="clusterNodes.length" class="cluster-grid">
+              <button
+                v-for="node in clusterNodes"
+                :key="node.id"
+                type="button"
+                class="cluster-dot"
+                :class="{ active: node.id === activeClusterId }"
+                @click="selectClusterNode(node)"
+              >
+                <span class="cluster-dot__balloon" :style="{ backgroundColor: node.color }"></span>
+              </button>
+            </div>
+            <div v-else class="text-muted xsmall mt-1">
+              Selecciona un grupo o un globo agrupado para editar.
+            </div>
           </div>
 
           <div class="row g-2 mt-2">
@@ -399,10 +470,12 @@
 </template>
 
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
+import { useCatalogStore } from '@/stores/catalog.store'
 
 const editor = useEditorStore()
+const catalog = useCatalogStore()
 
 const currentColor = computed(() => editor.selectedNode?.color || '#ff3b30')
 const arc = ref({
@@ -412,9 +485,11 @@ const arc = ref({
   rows: 2,
   radius: 22,
   spacing: 4,
+  typeId: 'round-11',
   group: false,
   guide: false,
 })
+const arcAdvanced = ref(false)
 const cluster = ref({
   cols: 6,
   rows: 4,
@@ -426,13 +501,30 @@ const cluster = ref({
 })
 const templateColorsText = ref('')
 const templateColorMode = ref('sequence')
+const showCluster = ref(false)
 
 const templateColors = computed(() => parseColorList(templateColorsText.value))
 const arcPreview = computed(() => buildArcPreview(arc.value, 140, 90))
+const catalogTypes = computed(() => catalog.types || [])
+const arcType = computed(() => (arc.value.typeId ? catalog.typeById(arc.value.typeId) : null))
 const frontPreview = computed(() => buildArcPreview(getArcPreset('front'), 140, 70))
 const backPreview = computed(() => buildArcPreview(getArcPreset('back'), 140, 70))
 const clusterPreview = computed(() => buildClusterPreview(cluster.value, 140, 90))
 const hasGuides = computed(() => (editor.nodes || []).some((n) => n?.meta?.guide))
+const activeClusterId = computed(() => editor.selectedId)
+const clusterGroup = computed(() => {
+  const groups = Array.isArray(editor.groups) ? editor.groups : []
+  const groupId = editor.selectedGroupId || editor.selectedNode?.groupId
+  if (!groupId) return null
+  return groups.find((g) => String(g.id) === String(groupId)) || null
+})
+const clusterGroupLabel = computed(() => clusterGroup.value?.name || 'Cluster')
+const clusterNodes = computed(() => {
+  const group = clusterGroup.value
+  if (!group || !Array.isArray(group.childIds)) return []
+  const nodeById = new Map((editor.nodes || []).map((n) => [String(n.id), n]))
+  return group.childIds.map((id) => nodeById.get(String(id))).filter((n) => n && !n?.meta?.guide)
+})
 const guideRemoveOnFill = computed({
   get: () => editor.ui?.guideRemoveOnFill ?? true,
   set: (value) => {
@@ -459,8 +551,64 @@ function resolveTemplateColors() {
   return list.length ? list : [currentColor.value]
 }
 
+function defaultMetaForType(type) {
+  const def = type?.default
+  const meta = def && typeof def === 'object' ? { ...def } : {}
+  if (type?.inflation?.defaultScale) {
+    meta.inflationScale = type.inflation.defaultScale
+  }
+  return meta
+}
+
+function arcRadiusFromType(type) {
+  if (!type?.default) return null
+  const rx = Number(type.default.radiusX)
+  const ry = Number(type.default.radiusY)
+  if (Number.isFinite(rx) && Number.isFinite(ry)) return Math.max(rx, ry)
+  if (Number.isFinite(rx)) return rx
+  if (Number.isFinite(ry)) return ry
+  return null
+}
+
+function applyArcTypeDefaults() {
+  const type = arcType.value
+  if (!type) return
+  const radius = arcRadiusFromType(type)
+  if (Number.isFinite(radius)) {
+    arc.value = { ...arc.value, radius: Math.max(6, Math.round(radius)) }
+  }
+}
+
+onMounted(() => {
+  if (typeof catalog.init === 'function') catalog.init()
+})
+
+watch(
+  catalogTypes,
+  (types) => {
+    if (!types?.length) return
+    if (!arcType.value) {
+      arc.value = { ...arc.value, typeId: types[0].id }
+    }
+    applyArcTypeDefaults()
+  },
+  { immediate: true },
+)
+
+watch(
+  () => arc.value.typeId,
+  () => {
+    applyArcTypeDefaults()
+  },
+)
+
 function useCurrentColor() {
   templateColorsText.value = currentColor.value
+}
+
+function selectClusterNode(node) {
+  if (!node?.id) return
+  editor.select(node.id, { append: false })
 }
 
 function getStageSize(stage) {
@@ -557,19 +705,20 @@ function normalizePoints(points, boxW, boxH, padding = 6) {
 function buildArcPreview(config, boxW = 140, boxH = 90) {
   const cfg = config || arc.value
   const safeCount = Math.max(1, Math.round(Number(cfg.count) || 1))
-  const safeRows = Math.max(1, Math.min(2, Math.round(Number(cfg.rows) || 1)))
+  const safeRows = Math.max(1, Math.min(6, Math.round(Number(cfg.rows) || 1)))
   const safeWidth = Math.max(120, Math.round(Number(cfg.width) || 520))
   const safeHeight = Math.max(80, Math.round(Number(cfg.height) || 260))
   const safeRadius = Math.max(6, Math.round(Number(cfg.radius) || 22))
+  const safeSpacing = Math.max(0, Math.round(Number(cfg.spacing) || 0))
   const baseCount = Math.floor(safeCount / safeRows)
   const extra = safeCount % safeRows
   const points = []
 
   for (let row = 0; row < safeRows; row += 1) {
     const rowCount = Math.max(1, baseCount + (row < extra ? 1 : 0))
-    const inset = row * 16
-    const a = Math.max(20, safeWidth / 2 - inset)
-    const b = Math.max(20, safeHeight - inset)
+    const inset = row * (safeRadius * 2 + safeSpacing)
+    const a = Math.max(safeRadius * 2, safeWidth / 2 - inset)
+    const b = Math.max(safeRadius * 2, safeHeight - inset)
     for (let i = 0; i < rowCount; i += 1) {
       const t = rowCount === 1 ? 0.5 : i / (rowCount - 1)
       const angle = Math.PI - t * Math.PI
@@ -688,6 +837,7 @@ function insertArc() {
   const p = getAddPoint({ center: true })
   const height = Number(arc.value.height || 0)
   const baselineY = Number.isFinite(height) && height > 0 ? p.y + height / 2 : p.y
+  const metaDefaults = arcType.value ? defaultMetaForType(arcType.value) : null
 
   editor.addArcTemplate({
     centerX: p.x,
@@ -698,10 +848,39 @@ function insertArc() {
     rows: arc.value.rows,
     radius: arc.value.radius,
     spacing: arc.value.spacing,
+    typeId: arc.value.typeId,
+    metaDefaults,
     colors: resolveTemplateColors(),
     colorMode: templateColorMode.value,
     group: arc.value.group,
     guide: arc.value.guide,
+  })
+}
+
+function insertArcQuick() {
+  if (typeof editor.addArcTemplate !== 'function') return
+  const p = getAddPoint({ center: true })
+  const type = arcType.value
+  const radius = arcRadiusFromType(type) || arc.value.radius
+  const baseWidth = Math.max(200, Math.round(Number(arc.value.width || 520)))
+  const baseHeight = Math.max(140, Math.round(Number(arc.value.height || 240)))
+  const metaDefaults = type ? defaultMetaForType(type) : null
+
+  editor.addArcTemplate({
+    centerX: p.x,
+    centerY: p.y + baseHeight / 2,
+    width: baseWidth,
+    height: baseHeight,
+    count: arc.value.count,
+    rows: arc.value.rows,
+    radius: radius,
+    spacing: arc.value.spacing,
+    typeId: arc.value.typeId,
+    metaDefaults,
+    colors: resolveTemplateColors(),
+    colorMode: templateColorMode.value,
+    group: true,
+    guide: false,
   })
 }
 
@@ -711,6 +890,7 @@ function insertArcPreset(kind) {
   const preset = getArcPreset(kind)
   if (!preset) return
   const baselineY = p.y + preset.height / 2
+  const metaDefaults = arcType.value ? defaultMetaForType(arcType.value) : null
 
   editor.addArcTemplate({
     centerX: p.x,
@@ -721,6 +901,8 @@ function insertArcPreset(kind) {
     rows: preset.rows,
     radius: preset.radius,
     spacing: preset.spacing,
+    typeId: arc.value.typeId,
+    metaDefaults,
     colors: resolveTemplateColors(),
     colorMode: templateColorMode.value,
     group: arc.value.group,
@@ -868,6 +1050,44 @@ function cancelGuideArea() {
   border-radius: 12px;
   background: #f7f8fa;
   padding: 6px;
+}
+
+.cluster-picker {
+  border: 1px dashed rgba(0, 0, 0, 0.12);
+  border-radius: 12px;
+  padding: 8px;
+  background: #fbfbfc;
+}
+
+.cluster-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(26px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.cluster-dot {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.cluster-dot__balloon {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.cluster-dot.active {
+  border-color: #0d6efd;
+  box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.2);
 }
 
 .preset-row {

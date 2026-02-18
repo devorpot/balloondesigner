@@ -45,6 +45,7 @@ export const useEditorStore = defineStore('editor', {
       rasterOnPan: false,
       maxVisibleNodes: 2500,
       guideRemoveOnFill: true,
+      groupEditMode: false,
       guideBoxMode: {
         active: false,
         action: null,
@@ -299,6 +300,8 @@ export const useEditorStore = defineStore('editor', {
       radius = 22,
       rows = 2,
       spacing = 4,
+      typeId = 'round-11',
+      metaDefaults = null,
       colors = [],
       colorMode = 'sequence',
       name = 'Arco',
@@ -306,13 +309,20 @@ export const useEditorStore = defineStore('editor', {
       guide = false,
     } = {}) {
       const safeCount = Math.max(1, Math.round(Number(count) || 1))
-      const safeRows = Math.max(1, Math.min(2, Math.round(Number(rows) || 1)))
+      const safeRows = Math.max(1, Math.min(6, Math.round(Number(rows) || 1)))
       const safeRadius = Math.max(6, Math.round(Number(radius) || 22))
       const safeSpacing = Math.max(0, Math.round(Number(spacing) || 0))
       const safeWidth = Math.max(120, Math.round(Number(width) || 520))
       const safeHeight = Math.max(80, Math.round(Number(height) || 260))
       const palette = Array.isArray(colors) ? colors.filter(Boolean) : []
       const fillColors = palette.length ? palette : ['#ff3b30']
+
+      const baseMeta = metaDefaults && typeof metaDefaults === 'object' ? { ...metaDefaults } : {}
+      const metaRadiusX = Number(baseMeta.radiusX)
+      const metaRadiusY = Number(baseMeta.radiusY)
+      const radiusX = Number.isFinite(metaRadiusX) ? metaRadiusX : safeRadius
+      const radiusY = Number.isFinite(metaRadiusY) ? metaRadiusY : safeRadius
+      const layoutRadius = Math.max(radiusX, radiusY)
 
       const cx = Number.isFinite(Number(centerX)) ? Number(centerX) : 200
       const cy = Number.isFinite(Number(centerY)) ? Number(centerY) : 200
@@ -342,23 +352,22 @@ export const useEditorStore = defineStore('editor', {
 
         for (let row = 0; row < safeRows; row += 1) {
           const rowCount = Math.max(1, baseCount + (row < extra ? 1 : 0))
-          const inset = row * (safeRadius * 2 + safeSpacing)
-          const a = Math.max(safeRadius * 2, safeWidth / 2 - inset)
-          const b = Math.max(safeRadius * 2, safeHeight - inset)
+          const inset = row * (layoutRadius * 2 + safeSpacing)
+          const a = Math.max(layoutRadius * 2, safeWidth / 2 - inset)
+          const b = Math.max(layoutRadius * 2, safeHeight - inset)
 
           for (let i = 0; i < rowCount; i += 1) {
             const t = rowCount === 1 ? 0.5 : i / (rowCount - 1)
             const angle = Math.PI - t * Math.PI
             const x = cx + a * Math.cos(angle)
             const y = cy - b * Math.sin(angle)
-
             const color = pickColor()
             const id = uid()
 
             const node = {
               id,
               kind: 'balloon',
-              typeId: 'round-11',
+              typeId: String(typeId || 'round-11'),
               x,
               y,
               rotation: 0,
@@ -371,10 +380,11 @@ export const useEditorStore = defineStore('editor', {
               zIndex: baseIndex + nextNodes.length,
               groupId: null,
               meta: {
-                radiusX: safeRadius,
-                radiusY: safeRadius,
-                knot: true,
-                shape: 'ellipse',
+                ...baseMeta,
+                radiusX,
+                radiusY,
+                knot: baseMeta.knot ?? true,
+                shape: baseMeta.shape ?? 'ellipse',
                 guide: isGuide,
               },
             }
@@ -685,7 +695,12 @@ export const useEditorStore = defineStore('editor', {
       if (!node) return
       if (node?.meta?.guide) return
 
-      this.selectedGroupId = null
+      const inGroupEdit = !!this.ui?.groupEditMode && !!this.selectedGroupId
+      if (inGroupEdit) {
+        if (!node.groupId || String(node.groupId) !== String(this.selectedGroupId)) return
+      } else {
+        this.selectedGroupId = null
+      }
 
       if (!append) {
         this.selectedId = id
@@ -704,7 +719,12 @@ export const useEditorStore = defineStore('editor', {
       if (!node) return
       if (node?.meta?.guide) return
 
-      this.selectedGroupId = null
+      const inGroupEdit = !!this.ui?.groupEditMode && !!this.selectedGroupId
+      if (inGroupEdit) {
+        if (!node.groupId || String(node.groupId) !== String(this.selectedGroupId)) return
+      } else {
+        this.selectedGroupId = null
+      }
 
       const set = new Set(this.selectedIds || [])
       if (set.has(id)) set.delete(id)
@@ -716,11 +736,11 @@ export const useEditorStore = defineStore('editor', {
     },
 
     setSelection(ids = []) {
-      const set = new Set(ids)
-      const valid = this.nodes
-        .filter((n) => !n?.meta?.guide)
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const valid = (Array.isArray(ids) ? ids : [])
+        .map((id) => nodeById.get(String(id)))
+        .filter((n) => n && !n?.meta?.guide)
         .map((n) => n.id)
-        .filter((id) => set.has(id))
       this.selectedGroupId = null
       this.selectedIds = valid
       this.selectedId = valid.length ? valid[valid.length - 1] : null
@@ -738,14 +758,32 @@ export const useEditorStore = defineStore('editor', {
       const group = groups.find((g) => String(g.id) === String(groupId))
       if (!group || !Array.isArray(group.childIds) || !group.childIds.length) return
 
-      const nodeSet = new Set(this.nodes.map((n) => String(n.id)))
-      const validIds = group.childIds.map((id) => String(id)).filter((id) => nodeSet.has(id))
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const validIds = group.childIds
+        .map((id) => nodeById.get(String(id)))
+        .filter(Boolean)
+        .map((n) => n.id)
 
       if (!validIds.length) return
 
       this.selectedGroupId = group.id
       this.selectedIds = validIds
       this.selectedId = validIds[validIds.length - 1]
+    },
+
+    setGroupEditMode({ enabled = false, groupId = null } = {}) {
+      if (!this.ui) return false
+      if (!enabled) {
+        this.ui.groupEditMode = false
+        if (this.selectedGroupId) this.selectGroup(this.selectedGroupId)
+        return true
+      }
+
+      const targetGroupId = groupId || this.selectedGroupId || this.selectedNode?.groupId
+      if (!targetGroupId) return false
+      this.selectGroup(targetGroupId)
+      this.ui.groupEditMode = true
+      return true
     },
 
     groupSelection({ name } = {}) {
@@ -1165,6 +1203,7 @@ export const useEditorStore = defineStore('editor', {
       try {
         const saved = localStorage.getItem('autosave_enabled')
         if (saved !== null) this.autosave.enabled = saved === 'true'
+        else this.autosave.enabled = true
       } catch {
         // ignore
       }

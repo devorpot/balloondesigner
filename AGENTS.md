@@ -15,19 +15,21 @@ This document answers the main questions an agent needs to stay productive: how 
 
 1. Install dependencies:
    - `npm install` (uses `package-lock.json`).
-2. Run the app locally:
+2. Node version:
+   - Use Node `^20.19.0 || >=22.12.0` (see `package.json` engines).
+3. Run the app locally:
    - `npm run dev` (Vite dev server, hot reloads).
-3. Preview a production build:
+4. Preview a production build:
    - `npm run build` to compile.
    - `npm run preview` to serve the generated output.
-4. Linting and formatting:
+5. Linting and formatting:
    - `npm run lint` runs both `lint:oxlint` and `lint:eslint` via `run-s`.
    - `npm run lint:oxlint` uses `oxlint . --fix` for style + Vue recommended rules.
    - `npm run lint:eslint` runs `eslint . --fix --cache` to catch standard JS issues.
    - `npm run format` applies Prettier with the existing `src/` pattern.
-5. Testing guidance (there is no automated `npm run test` script yet):
+6. Testing guidance (there is no automated `npm run test` script yet):
    - Run the UI manually via `npm run dev` and exercise scenarios (catalog, canvas, autosave) to validate behavior.
-   - When you add tests, introduce a descriptive npm script (e.g., `test:unit`, `test:e2e`, `test:unit -- file`) and describe it here so future agents can run a single test by name.
+   - When you add tests, introduce a descriptive npm script (for example, `test:unit`, `test:e2e`, or `test:unit -- path/to/test`) and describe it here so future agents can run a single test by name.
 
 ## 3. Architecture reminders (captures docs + AGENT_PROMPT)
 
@@ -59,6 +61,7 @@ This document answers the main questions an agent needs to stay productive: how 
 
 ## 4. Imports and module conventions
 
+- This repo uses ESM (`"type": "module"` in `package.json`); prefer `import`/`export` consistently.
 - Prefer absolute aliases (`@/stores/...`, `@/components/...`) for stores/components inside `src/` so refactors move cleanly.
 - Keep `import` statements grouped: Vue/core (`ref`, `computed`, `watch`, `onMounted`), third-party libs (Pinia, Konva wrappers), and local files last.
 - Always annotate store usage with `const store = useXStore()` at the top of script setup so actions and getters are hoisted.
