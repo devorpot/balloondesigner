@@ -245,16 +245,6 @@ function addType(type, opts = {}) {
   })
 }
 
-function previewStyle(t) {
-  const rx = Number(t?.default?.radiusX ?? 20)
-  const ry = Number(t?.default?.radiusY ?? 28)
-  const max = 34
-  const scale = Math.min(1, max / Math.max(rx, ry))
-  const w = Math.max(18, Math.round(rx * 2 * scale))
-  const h = Math.max(18, Math.round(ry * 2 * scale))
-  return { width: `${w}px`, height: `${h}px`, background: currentColor.value }
-}
-
 function onDragStartType(t, e) {
   const payload = { typeId: t.id, meta: defaultMetaForType(t), color: currentColor.value }
   try {

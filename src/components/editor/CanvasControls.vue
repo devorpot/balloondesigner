@@ -54,12 +54,6 @@ const zoomLabel = computed(() => `${Math.round((store.view?.scale || 1) * 100)}%
 let zoomRaf = null
 let zoomTarget = null
 
-function stopZoomAnimation() {
-  if (zoomRaf) cancelAnimationFrame(zoomRaf)
-  zoomRaf = null
-  zoomTarget = null
-}
-
 function scheduleView(target) {
   zoomTarget = target
   if (!zoomRaf) zoomRaf = requestAnimationFrame(stepZoom)
