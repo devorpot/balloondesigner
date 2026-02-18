@@ -3,8 +3,11 @@ import { defineStore } from 'pinia'
 import { toRaw } from 'vue'
 import {
   createDefaultCanvasSettings,
+  DEFAULT_DISPLAY_SCALE,
   MAX_CANVAS_CM,
+  MAX_DISPLAY_SCALE,
   MIN_CANVAS_CM,
+  MIN_DISPLAY_SCALE,
   PX_PER_CM,
 } from '@/constants/canvas'
 
@@ -38,6 +41,15 @@ export const useEditorStore = defineStore('editor', {
 
     ui: {
       panMode: false,
+      renderQuality: 'high',
+      rasterOnPan: false,
+      maxVisibleNodes: 2500,
+      guideRemoveOnFill: true,
+      guideBoxMode: {
+        active: false,
+        action: null,
+        removeGuides: false,
+      },
     },
 
     settings: {
@@ -123,7 +135,8 @@ export const useEditorStore = defineStore('editor', {
 
     materialsSummary(state) {
       const nodes = state.nodes.filter(
-        (n) => n.visible !== false && n.kind !== 'text' && n.kind !== 'image',
+        (n) =>
+          n.visible !== false && n.kind !== 'text' && n.kind !== 'image' && n?.meta?.guide !== true,
       )
       const total = nodes.length
 
@@ -277,6 +290,353 @@ export const useEditorStore = defineStore('editor', {
       return node.id
     },
 
+    addArcTemplate({
+      centerX = 200,
+      centerY = 200,
+      width = 520,
+      height = 260,
+      count = 32,
+      radius = 22,
+      rows = 2,
+      spacing = 4,
+      colors = [],
+      colorMode = 'sequence',
+      name = 'Arco',
+      group = false,
+      guide = false,
+    } = {}) {
+      const safeCount = Math.max(1, Math.round(Number(count) || 1))
+      const safeRows = Math.max(1, Math.min(2, Math.round(Number(rows) || 1)))
+      const safeRadius = Math.max(6, Math.round(Number(radius) || 22))
+      const safeSpacing = Math.max(0, Math.round(Number(spacing) || 0))
+      const safeWidth = Math.max(120, Math.round(Number(width) || 520))
+      const safeHeight = Math.max(80, Math.round(Number(height) || 260))
+      const palette = Array.isArray(colors) ? colors.filter(Boolean) : []
+      const fillColors = palette.length ? palette : ['#ff3b30']
+
+      const cx = Number.isFinite(Number(centerX)) ? Number(centerX) : 200
+      const cy = Number.isFinite(Number(centerY)) ? Number(centerY) : 200
+
+      const ids = []
+      const baseCount = Math.floor(safeCount / safeRows)
+      const extra = safeCount % safeRows
+
+      let colorIndex = 0
+      const mode = colorMode === 'random' || colorMode === 'solid' ? colorMode : 'sequence'
+      const isGuide = !!guide
+      const pickColor = () => {
+        if (!fillColors.length) return '#ff3b30'
+        if (mode === 'random') {
+          return fillColors[Math.floor(Math.random() * fillColors.length)]
+        }
+        if (mode === 'solid') return fillColors[0]
+        const color = fillColors[colorIndex % fillColors.length]
+        colorIndex += 1
+        return color
+      }
+      const nextNodes = []
+
+      this.beginHistoryBatch()
+      try {
+        const baseIndex = this.nodes.length
+
+        for (let row = 0; row < safeRows; row += 1) {
+          const rowCount = Math.max(1, baseCount + (row < extra ? 1 : 0))
+          const inset = row * (safeRadius * 2 + safeSpacing)
+          const a = Math.max(safeRadius * 2, safeWidth / 2 - inset)
+          const b = Math.max(safeRadius * 2, safeHeight - inset)
+
+          for (let i = 0; i < rowCount; i += 1) {
+            const t = rowCount === 1 ? 0.5 : i / (rowCount - 1)
+            const angle = Math.PI - t * Math.PI
+            const x = cx + a * Math.cos(angle)
+            const y = cy - b * Math.sin(angle)
+
+            const color = pickColor()
+            const id = uid()
+
+            const node = {
+              id,
+              kind: 'balloon',
+              typeId: 'round-11',
+              x,
+              y,
+              rotation: 0,
+              scaleX: 1,
+              scaleY: 1,
+              opacity: isGuide ? 0.25 : 1,
+              color,
+              locked: isGuide ? true : false,
+              visible: true,
+              zIndex: baseIndex + nextNodes.length,
+              groupId: null,
+              meta: {
+                radiusX: safeRadius,
+                radiusY: safeRadius,
+                knot: true,
+                shape: 'ellipse',
+                guide: isGuide,
+              },
+            }
+
+            nextNodes.push(node)
+            ids.push(id)
+          }
+        }
+
+        if (nextNodes.length) {
+          this.nodes.push(...nextNodes)
+        }
+
+        if (ids.length >= 2 && group) {
+          this.createGroup({ name, childIds: ids })
+        } else if (ids.length) {
+          this.setSelection(ids)
+        }
+
+        if (nextNodes.length) {
+          this.reindexZ()
+          this.markDirty()
+        }
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return ids
+    },
+
+    addClusterTemplate({
+      centerX = 200,
+      centerY = 200,
+      cols = 6,
+      rows = 4,
+      radius = 10,
+      innerGap = 2,
+      clusterGap = 14,
+      colors = [],
+      colorMode = 'sequence',
+      name = 'Cluster',
+      group = false,
+      guide = false,
+    } = {}) {
+      const safeCols = Math.max(1, Math.round(Number(cols) || 1))
+      const safeRows = Math.max(1, Math.round(Number(rows) || 1))
+      const safeRadius = Math.max(4, Math.round(Number(radius) || 10))
+      const safeInnerGap = Math.max(0, Math.round(Number(innerGap) || 0))
+      const safeClusterGap = Math.max(0, Math.round(Number(clusterGap) || 0))
+      const palette = Array.isArray(colors) ? colors.filter(Boolean) : []
+      const fillColors = palette.length ? palette : ['#ff3b30']
+
+      const cx = Number.isFinite(Number(centerX)) ? Number(centerX) : 200
+      const cy = Number.isFinite(Number(centerY)) ? Number(centerY) : 200
+
+      const offset = safeRadius + safeInnerGap
+      const clusterSize = offset * 2
+      const step = clusterSize + safeClusterGap
+      const totalW = safeCols === 1 ? clusterSize : clusterSize + step * (safeCols - 1)
+      const totalH = safeRows === 1 ? clusterSize : clusterSize + step * (safeRows - 1)
+      const startX = cx - totalW / 2
+      const startY = cy - totalH / 2
+
+      const ids = []
+      const nextNodes = []
+      let colorIndex = 0
+      const mode = colorMode === 'random' || colorMode === 'solid' ? colorMode : 'sequence'
+      const isGuide = !!guide
+      const pickColor = () => {
+        if (!fillColors.length) return '#ff3b30'
+        if (mode === 'random') {
+          return fillColors[Math.floor(Math.random() * fillColors.length)]
+        }
+        if (mode === 'solid') return fillColors[0]
+        const color = fillColors[colorIndex % fillColors.length]
+        colorIndex += 1
+        return color
+      }
+
+      this.beginHistoryBatch()
+      try {
+        const baseIndex = this.nodes.length
+
+        for (let r = 0; r < safeRows; r += 1) {
+          for (let c = 0; c < safeCols; c += 1) {
+            const clusterX = startX + clusterSize / 2 + c * step
+            const clusterY = startY + clusterSize / 2 + r * step
+            const positions = [
+              { x: clusterX - offset, y: clusterY - offset },
+              { x: clusterX + offset, y: clusterY - offset },
+              { x: clusterX - offset, y: clusterY + offset },
+              { x: clusterX + offset, y: clusterY + offset },
+            ]
+
+            for (const p of positions) {
+              const color = pickColor()
+              const id = uid()
+
+              nextNodes.push({
+                id,
+                kind: 'balloon',
+                typeId: 'round-11',
+                x: p.x,
+                y: p.y,
+                rotation: 0,
+                scaleX: 1,
+                scaleY: 1,
+                opacity: isGuide ? 0.25 : 1,
+                color,
+                locked: isGuide ? true : false,
+                visible: true,
+                zIndex: baseIndex + nextNodes.length,
+                groupId: null,
+                meta: {
+                  radiusX: safeRadius,
+                  radiusY: safeRadius,
+                  knot: true,
+                  shape: 'ellipse',
+                  guide: isGuide,
+                },
+              })
+
+              ids.push(id)
+            }
+          }
+        }
+
+        if (nextNodes.length) {
+          this.nodes.push(...nextNodes)
+        }
+
+        if (ids.length >= 2 && group) {
+          this.createGroup({ name, childIds: ids })
+        } else if (ids.length) {
+          this.setSelection(ids)
+        }
+
+        if (nextNodes.length) {
+          this.reindexZ()
+          this.markDirty()
+        }
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return ids
+    },
+
+    convertGuidesToBalloons({ ids = null } = {}) {
+      const set = Array.isArray(ids) ? new Set(ids) : null
+      const targets = this.nodes.filter((n) => n?.meta?.guide && (!set || set.has(n.id)))
+      if (!targets.length) return 0
+
+      for (const n of targets) {
+        n.locked = false
+        n.opacity = 1
+        const base = n.meta && typeof n.meta === 'object' ? n.meta : {}
+        n.meta = { ...base, guide: false }
+      }
+
+      this.markDirty()
+      return targets.length
+    },
+
+    fillGuides({ removeGuides = false } = {}) {
+      const guides = this.nodes.filter((n) => n?.meta?.guide)
+      if (!guides.length) return []
+
+      const nextNodes = []
+      const ids = []
+      const baseIndex = this.nodes.length
+
+      for (const n of guides) {
+        const id = uid()
+        ids.push(id)
+        nextNodes.push({
+          id,
+          kind: 'balloon',
+          typeId: n.typeId || 'round-11',
+          x: n.x,
+          y: n.y,
+          rotation: n.rotation || 0,
+          scaleX: n.scaleX ?? 1,
+          scaleY: n.scaleY ?? 1,
+          opacity: 1,
+          color: n.color || '#ff3b30',
+          locked: false,
+          visible: true,
+          zIndex: baseIndex + nextNodes.length,
+          groupId: null,
+          meta: {
+            ...(n.meta && typeof n.meta === 'object' ? n.meta : {}),
+            guide: false,
+          },
+        })
+      }
+
+      if (removeGuides) {
+        const guideSet = new Set(guides.map((n) => n.id))
+        this.nodes = this.nodes.filter((n) => !guideSet.has(n.id))
+      }
+
+      this.nodes.push(...nextNodes)
+      this.reindexZ()
+      this.setSelection(ids)
+      this.markDirty()
+      return ids
+    },
+
+    convertGuidesInRect(rect, { color = null } = {}) {
+      if (!rect || rect.width <= 0 || rect.height <= 0) return 0
+      const guides = guidesInRect(this, rect, color)
+      if (!guides.length) return 0
+      return this.convertGuidesToBalloons({ ids: guides.map((n) => n.id) })
+    },
+
+    fillGuidesInRect(rect, { removeGuides = false, color = null } = {}) {
+      if (!rect || rect.width <= 0 || rect.height <= 0) return []
+      const guides = guidesInRect(this, rect, color)
+      if (!guides.length) return []
+
+      const nextNodes = []
+      const ids = []
+      const baseIndex = this.nodes.length
+
+      for (const n of guides) {
+        const id = uid()
+        ids.push(id)
+        nextNodes.push({
+          id,
+          kind: 'balloon',
+          typeId: n.typeId || 'round-11',
+          x: n.x,
+          y: n.y,
+          rotation: n.rotation || 0,
+          scaleX: n.scaleX ?? 1,
+          scaleY: n.scaleY ?? 1,
+          opacity: 1,
+          color: n.color || '#ff3b30',
+          locked: false,
+          visible: true,
+          zIndex: baseIndex + nextNodes.length,
+          groupId: null,
+          meta: {
+            ...(n.meta && typeof n.meta === 'object' ? n.meta : {}),
+            guide: false,
+          },
+        })
+      }
+
+      if (removeGuides) {
+        const guideSet = new Set(guides.map((n) => n.id))
+        this.nodes = this.nodes.filter((n) => !guideSet.has(n.id))
+      }
+
+      this.nodes.push(...nextNodes)
+      this.reindexZ()
+      this.setSelection(ids)
+      this.markDirty()
+      return ids
+    },
+
     updateNode(id, patch) {
       const node = this.nodes.find((n) => n.id === id)
       if (!node) return
@@ -321,8 +681,9 @@ export const useEditorStore = defineStore('editor', {
 
     // ===== Selección =====
     select(id, { append = false } = {}) {
-      const exists = this.nodes.some((n) => n.id === id)
-      if (!exists) return
+      const node = this.nodes.find((n) => n.id === id)
+      if (!node) return
+      if (node?.meta?.guide) return
 
       this.selectedGroupId = null
 
@@ -339,8 +700,9 @@ export const useEditorStore = defineStore('editor', {
     },
 
     toggleSelect(id) {
-      const exists = this.nodes.some((n) => n.id === id)
-      if (!exists) return
+      const node = this.nodes.find((n) => n.id === id)
+      if (!node) return
+      if (node?.meta?.guide) return
 
       this.selectedGroupId = null
 
@@ -355,7 +717,10 @@ export const useEditorStore = defineStore('editor', {
 
     setSelection(ids = []) {
       const set = new Set(ids)
-      const valid = this.nodes.map((n) => n.id).filter((id) => set.has(id))
+      const valid = this.nodes
+        .filter((n) => !n?.meta?.guide)
+        .map((n) => n.id)
+        .filter((id) => set.has(id))
       this.selectedGroupId = null
       this.selectedIds = valid
       this.selectedId = valid.length ? valid[valid.length - 1] : null
@@ -501,6 +866,7 @@ export const useEditorStore = defineStore('editor', {
       const hit = []
       for (const n of this.nodes) {
         if (n.visible === false) continue
+        if (n?.meta?.guide) continue
 
         const box = nodeBoundingBox(n)
         if (rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })) {
@@ -574,6 +940,15 @@ export const useEditorStore = defineStore('editor', {
       if (!next) return
       if (next === this.canvas.backgroundColor) return
       this.canvas.backgroundColor = next
+      this.markDirty()
+    },
+
+    setCanvasDisplayScale(value) {
+      const n = Number(value)
+      if (!Number.isFinite(n)) return
+      const next = clamp(n, MIN_DISPLAY_SCALE, MAX_DISPLAY_SCALE)
+      if (next === this.canvas.displayScale) return
+      this.canvas.displayScale = next
       this.markDirty()
     },
 
@@ -688,7 +1063,12 @@ export const useEditorStore = defineStore('editor', {
     },
 
     // ===== Export PNG =====
-    exportPng({ pixelRatio = 2, cropToContent = false, fileName = 'diseno.png' } = {}) {
+    exportPng({
+      pixelRatio = 2,
+      cropToContent = false,
+      fileName = 'diseno.png',
+      useDisplayScale = true,
+    } = {}) {
       const stage = this.stage
       if (!stage) {
         window.alert('Stage no está listo para exportar.')
@@ -696,6 +1076,8 @@ export const useEditorStore = defineStore('editor', {
       }
 
       let dataUrl = null
+      const ds = Number(this.canvas?.displayScale || 1)
+      const scaleRatio = useDisplayScale ? ds : 1
 
       if (cropToContent) {
         const box = this.getContentBoundingBox()
@@ -705,37 +1087,40 @@ export const useEditorStore = defineStore('editor', {
         }
 
         dataUrl = stage.toDataURL({
-          pixelRatio,
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
+          pixelRatio: pixelRatio * scaleRatio,
+          x: box.x * scaleRatio,
+          y: box.y * scaleRatio,
+          width: box.width * scaleRatio,
+          height: box.height * scaleRatio,
         })
       } else {
-        dataUrl = stage.toDataURL({ pixelRatio })
+        dataUrl = stage.toDataURL({ pixelRatio: pixelRatio * scaleRatio })
       }
 
       downloadDataUrl(dataUrl, fileName)
     },
 
-    getPngDataUrl({ pixelRatio = 2, cropToContent = true } = {}) {
+    getPngDataUrl({ pixelRatio = 2, cropToContent = true, useDisplayScale = true } = {}) {
       const stage = this.stage
       if (!stage) return null
+
+      const ds = Number(this.canvas?.displayScale || 1)
+      const scaleRatio = useDisplayScale ? ds : 1
 
       if (cropToContent) {
         const box = this.getContentBoundingBox()
         if (!box) return null
 
         return stage.toDataURL({
-          pixelRatio,
-          x: box.x,
-          y: box.y,
-          width: box.width,
-          height: box.height,
+          pixelRatio: pixelRatio * scaleRatio,
+          x: box.x * scaleRatio,
+          y: box.y * scaleRatio,
+          width: box.width * scaleRatio,
+          height: box.height * scaleRatio,
         })
       }
 
-      return stage.toDataURL({ pixelRatio })
+      return stage.toDataURL({ pixelRatio: pixelRatio * scaleRatio })
     },
 
     getContentBoundingBox(padding = 40) {
@@ -777,6 +1162,12 @@ export const useEditorStore = defineStore('editor', {
 
     // ===== Autosave =====
     initAutosave() {
+      try {
+        const saved = localStorage.getItem('autosave_enabled')
+        if (saved !== null) this.autosave.enabled = saved === 'true'
+      } catch {
+        // ignore
+      }
       this.restoreFromStorage({ silent: true })
       this.initHistory()
 
@@ -798,6 +1189,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     scheduleAutosave() {
+      if (!this.autosave.enabled) return
       this.clearAutosaveTimer()
       this.autosave.timerId = window.setTimeout(() => {
         this.flushAutosaveNow()
@@ -826,6 +1218,22 @@ export const useEditorStore = defineStore('editor', {
       } catch (err) {
         console.warn('Autosave failed:', err)
       }
+    },
+
+    setAutosaveEnabled(value) {
+      const next = !!value
+      if (this.autosave.enabled === next) return
+      this.autosave.enabled = next
+      try {
+        localStorage.setItem('autosave_enabled', String(next))
+      } catch {
+        // ignore
+      }
+      if (!next) {
+        this.clearAutosaveTimer()
+        return
+      }
+      if (this.autosave.isDirty) this.scheduleAutosave()
     },
 
     serializeDesign() {
@@ -863,6 +1271,7 @@ export const useEditorStore = defineStore('editor', {
           offsetYcm: Number(this.canvas.offsetYcm || 0),
           lockRatio: !!this.canvas.lockRatio,
           backgroundColor: this.canvas.backgroundColor || '#ffffff',
+          displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
         },
       }
     },
@@ -930,6 +1339,11 @@ export const useEditorStore = defineStore('editor', {
             ? canvasPayload.lockRatio
             : defaults.lockRatio,
         backgroundColor: canvasPayload.backgroundColor || defaults.backgroundColor,
+        displayScale: clamp(
+          Number(canvasPayload.displayScale || defaults.displayScale),
+          MIN_DISPLAY_SCALE,
+          MAX_DISPLAY_SCALE,
+        ),
       }
 
       this.nodes.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
@@ -1046,6 +1460,11 @@ export const useEditorStore = defineStore('editor', {
             ? canvasPayload.lockRatio
             : defaults.lockRatio,
         backgroundColor: canvasPayload.backgroundColor || defaults.backgroundColor,
+        displayScale: clamp(
+          Number(canvasPayload.displayScale || defaults.displayScale),
+          MIN_DISPLAY_SCALE,
+          MAX_DISPLAY_SCALE,
+        ),
       }
 
       this.nodes.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
@@ -1093,6 +1512,7 @@ export const useEditorStore = defineStore('editor', {
         const isLocked = !!n.locked
         if (!includeHidden && isHidden) return false
         if (!includeLocked && isLocked) return false
+        if (n?.meta?.guide === true) return false
         if (n.kind === 'text' || n.kind === 'image') return false
         return true
       })
@@ -1608,6 +2028,22 @@ function rectsIntersect(a, b) {
     a.y + a.height < b.y ||
     a.y > b.y + b.height
   )
+}
+
+function guidesInRect(store, rect, color = null) {
+  const nodes = Array.isArray(store?.nodes) ? store.nodes : []
+  const targetColor = typeof color === 'string' && color.trim() ? color.trim().toLowerCase() : null
+  const guides = nodes.filter((n) => {
+    if (!n?.meta?.guide) return false
+    if (!targetColor) return true
+    return String(n.color || '').toLowerCase() === targetColor
+  })
+  if (!guides.length) return []
+
+  return guides.filter((n) => {
+    const box = nodeBoundingBox(n)
+    return rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })
+  })
 }
 
 function deepClone(obj) {

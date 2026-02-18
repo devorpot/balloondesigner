@@ -413,6 +413,19 @@ function onDragStartType(t, e) {
   font-size: 0.85rem;
 }
 
+.palette {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.palette-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+}
+
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;
@@ -421,36 +434,5 @@ function onDragStartType(t, e) {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-.palette {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.palette-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  box-shadow: 0 4px 8px -6px rgba(0, 0, 0, 0.15);
-}
-
-.preview {
-  border-radius: 999px;
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
-}
-
-.minw0 {
-  min-width: 0;
-}
-
-.empty {
-  border: 1px dashed rgba(0, 0, 0, 0.15);
-  border-radius: 16px;
-  padding: 14px;
-  text-align: center;
 }
 </style>

@@ -19,6 +19,14 @@
           <button
             class="tab-btn"
             type="button"
+            :class="{ active: leftTab === 'templates' }"
+            @click="leftTab = 'templates'"
+          >
+            Plantillas
+          </button>
+          <button
+            class="tab-btn"
+            type="button"
             :class="{ active: leftTab === 'layers' }"
             @click="leftTab = 'layers'"
           >
@@ -28,6 +36,9 @@
         <div class="left-panels">
           <div v-show="leftTab === 'catalog'" class="panel-stack">
             <SidebarCatalog />
+          </div>
+          <div v-show="leftTab === 'templates'" class="panel-stack">
+            <SidebarTemplates />
           </div>
           <div v-show="leftTab === 'layers'" class="panel-stack">
             <LayerPanel />
@@ -94,6 +105,7 @@ import { useEditorStore } from '@/stores/editor.store'
 import EditorLayout from '@/layouts/EditorLayout.vue'
 import ToolbarTop from '@/components/editor/ToolbarTop.vue'
 import SidebarCatalog from '@/components/editor/SidebarCatalog.vue'
+import SidebarTemplates from '@/components/editor/SidebarTemplates.vue'
 import CanvasStage from '@/components/editor/CanvasStage.vue'
 import CanvasControls from '@/components/editor/CanvasControls.vue'
 import LayerPanel from '@/components/editor/LayerPanel.vue'
@@ -183,6 +195,33 @@ function onKeyDown(e) {
   if ((e.ctrlKey && key === 'y') || (isCmd && key === 'y')) {
     e.preventDefault()
     store.redo()
+    return
+  }
+
+  if (isCmd && e.shiftKey && key === 'f') {
+    e.preventDefault()
+    store.fillGuides?.({ removeGuides: !!store.ui?.guideRemoveOnFill })
+    return
+  }
+
+  if (isCmd && e.shiftKey && key === 'g') {
+    e.preventDefault()
+    store.convertGuidesToBalloons?.()
+    return
+  }
+
+  if (isCmd && e.shiftKey && key === 'a') {
+    e.preventDefault()
+    store.startGuideBoxMode?.({ action: 'fill', removeGuides: !!store.ui?.guideRemoveOnFill })
+    return
+  }
+
+  if (isCmd && e.shiftKey && key === 'c') {
+    e.preventDefault()
+    store.startGuideBoxMode?.({
+      action: 'convert',
+      removeGuides: !!store.ui?.guideRemoveOnFill,
+    })
     return
   }
 }
@@ -284,7 +323,7 @@ function snap(v, step) {
 
 .left-tabs {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   background: #f5f7fb;
   border-radius: 14px;

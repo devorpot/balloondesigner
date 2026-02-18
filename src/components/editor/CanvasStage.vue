@@ -6,6 +6,12 @@
   <div class="canvas card border-0 shadow-sm">
     <div class="card-body p-0 h-100">
       <div ref="wrap" class="stage-wrap">
+        <div v-if="store.ui?.guideBoxMode?.active" class="guide-hint">
+          <span v-if="store.ui?.guideBoxMode?.action === 'convert'">
+            Modo area · convertir guia
+          </span>
+          <span v-else>Modo area · rellenar guia</span>
+        </div>
         <ContextMenu
           :show="menu.show"
           :pos="menu.pos"
@@ -43,7 +49,7 @@
           <v-layer ref="layerRef">
             <v-line v-for="g in guidesLines" :key="g.key" :config="g.cfg" />
 
-            <template v-for="node in store.visibleNodes" :key="node.id">
+            <template v-for="node in renderNodes" :key="node.id">
               <v-group
                 :config="groupConfig(node)"
                 @mousedown="onNodePointerDown(node, $event)"
@@ -61,8 +67,8 @@
                 </template>
                 <template v-else>
                   <v-ellipse :config="ellipseConfig(node)" />
-                  <v-ellipse :config="shineConfig(node)" />
-                  <v-circle :config="knotConfig(node)" />
+                  <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(node)" />
+                  <v-circle v-if="renderQuality === 'high'" :config="knotConfig(node)" />
                 </template>
               </v-group>
             </template>
@@ -80,7 +86,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
 import { useCatalogStore } from '@/stores/catalog.store'
-import { PX_PER_CM, MIN_CANVAS_CM } from '@/constants/canvas'
+import { MAX_DISPLAY_SCALE, MIN_CANVAS_CM, MIN_DISPLAY_SCALE, PX_PER_CM } from '@/constants/canvas'
 import ContextMenu from '@/components/editor/ContextMenu.vue'
 
 const store = useEditorStore()
@@ -101,6 +107,13 @@ const wrap = ref(null)
 const stageRef = ref(null)
 const layerRef = ref(null)
 const trRef = ref(null)
+const rasterActive = ref(false)
+
+const displayScale = computed(() => {
+  const n = Number(store.canvas?.displayScale || 1)
+  return Math.min(MAX_DISPLAY_SCALE, Math.max(MIN_DISPLAY_SCALE, n))
+})
+const renderScale = computed(() => store.view.scale * displayScale.value)
 
 const canvasSpecs = computed(() => {
   const widthCm = Math.max(MIN_CANVAS_CM, Number(store.canvas.widthCm ?? 160))
@@ -114,6 +127,24 @@ const canvasSpecs = computed(() => {
 const canvasWidth = computed(() => canvasSpecs.value.width)
 const canvasHeight = computed(() => canvasSpecs.value.height)
 
+const viewportRect = computed(() => {
+  const rs = renderScale.value
+  if (!rs) return { x: 0, y: 0, width: canvasWidth.value, height: canvasHeight.value }
+  const dx = store.view.x * displayScale.value
+  const dy = store.view.y * displayScale.value
+  const left = -dx / rs
+  const top = -dy / rs
+  const width = size.value.w / rs
+  const height = size.value.h / rs
+  const margin = 260
+  return {
+    x: left - margin,
+    y: top - margin,
+    width: width + margin * 2,
+    height: height + margin * 2,
+  }
+})
+
 const size = ref({ w: 300, h: 300 })
 let ro = null
 
@@ -121,10 +152,10 @@ let ro = null
 const stageConfig = computed(() => ({
   width: size.value.w,
   height: size.value.h,
-  x: store.view.x,
-  y: store.view.y,
-  scaleX: store.view.scale,
-  scaleY: store.view.scale,
+  x: store.view.x * displayScale.value,
+  y: store.view.y * displayScale.value,
+  scaleX: renderScale.value,
+  scaleY: renderScale.value,
 }))
 
 const bgConfig = computed(() => ({
@@ -179,6 +210,28 @@ function getTransformer() {
   return trRef.value?.getNode?.() ?? null
 }
 
+function setRasterMode(enabled) {
+  const layer = layerRef.value?.getNode?.() ?? null
+  if (!layer) return
+  if (enabled) {
+    if (rasterActive.value) return
+    try {
+      layer.cache()
+      rasterActive.value = true
+      layer.getLayer()?.batchDraw()
+    } catch {
+      rasterActive.value = false
+    }
+  } else if (rasterActive.value) {
+    try {
+      layer.clearCache()
+    } finally {
+      rasterActive.value = false
+      layer.getLayer()?.batchDraw()
+    }
+  }
+}
+
 function setCursor(mode) {
   const stage = getStage()
   const el = stage?.container?.()
@@ -188,6 +241,8 @@ function setCursor(mode) {
 
 /* ================== PAN MODE ================== */
 const panMode = computed(() => !!store.ui?.panMode)
+const renderQuality = computed(() => store.ui?.renderQuality || 'high')
+const maxRenderNodes = computed(() => Number(store.ui?.maxVisibleNodes || 2500))
 
 watch(panMode, (value) => {
   if (panning.value || spaceDown.value) return
@@ -205,6 +260,7 @@ function groupConfig(n) {
     scaleY: n.scaleY,
     opacity: n.opacity,
     draggable: !n.locked && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
+    listening: !n?.meta?.guide,
   }
 }
 
@@ -305,7 +361,26 @@ const gridLines = computed(() => {
   const lines = []
   const maxWidth = canvasWidth.value
   const maxHeight = canvasHeight.value
-  for (let x = 0; x <= maxWidth; x += gridSize) {
+  const rs = renderScale.value
+  if (!rs) return lines
+
+  let step = gridSize
+  if (rs < 0.35) step = gridSize * 4
+  else if (rs < 0.6) step = gridSize * 2
+
+  const dx = store.view.x * displayScale.value
+  const dy = store.view.y * displayScale.value
+  const left = Math.max(0, -dx / rs)
+  const top = Math.max(0, -dy / rs)
+  const right = Math.min(maxWidth, (size.value.w - dx) / rs)
+  const bottom = Math.min(maxHeight, (size.value.h - dy) / rs)
+
+  const startX = Math.max(0, Math.floor(left / step) * step)
+  const endX = Math.min(maxWidth, Math.ceil(right / step) * step)
+  const startY = Math.max(0, Math.floor(top / step) * step)
+  const endY = Math.min(maxHeight, Math.ceil(bottom / step) * step)
+
+  for (let x = startX; x <= endX; x += step) {
     lines.push({
       key: `v-${x}`,
       cfg: {
@@ -316,7 +391,7 @@ const gridLines = computed(() => {
       },
     })
   }
-  for (let y = 0; y <= maxHeight; y += gridSize) {
+  for (let y = startY; y <= endY; y += step) {
     lines.push({
       key: `h-${y}`,
       cfg: {
@@ -406,10 +481,57 @@ function nodeBoxAt(n, cx, cy) {
   }
 }
 
+function nodeBoundingBox(n) {
+  const { rx, ry } = nodeHalfSize(n)
+  const cx = Number(n?.x ?? 0)
+  const cy = Number(n?.y ?? 0)
+  return {
+    x: cx - rx,
+    y: cy - ry,
+    width: rx * 2,
+    height: ry * 2,
+  }
+}
+
+function rectIntersects(a, b) {
+  return !(
+    a.x + a.width < b.x ||
+    a.x > b.x + b.width ||
+    a.y + a.height < b.y ||
+    a.y > b.y + b.height
+  )
+}
+
+const renderNodes = computed(() => {
+  const nodes = store.visibleNodes || []
+  if (!nodes.length) return []
+  const rect = viewportRect.value
+  const selected = new Set(store.selectedIds || [])
+
+  const filtered = []
+  for (const n of nodes) {
+    if (selected.has(n.id)) {
+      filtered.push(n)
+      continue
+    }
+    const box = nodeBoundingBox(n)
+    if (rectIntersects(rect, box)) filtered.push(n)
+  }
+
+  if (filtered.length <= maxRenderNodes.value) return filtered
+
+  const selectedList = filtered.filter((n) => selected.has(n.id))
+  const rest = filtered.filter((n) => !selected.has(n.id))
+  const limit = Math.max(0, maxRenderNodes.value - selectedList.length)
+  return [...selectedList, ...rest.slice(0, limit)]
+})
+
 /* ================== GUIDES ================== */
 const guides = ref({ x: null, y: null })
 
 const guidesLines = computed(() => {
+  if (renderQuality.value === 'low') return []
+  if (!store.settings?.snapGuides) return []
   const lines = []
   if (guides.value.x && Number.isFinite(guides.value.x.value)) {
     const x = guides.value.x.value
@@ -445,6 +567,8 @@ function clearGuides() {
 }
 
 function buildSnapCandidates(excludeIds = []) {
+  if (renderQuality.value === 'low') return { xs: [], ys: [] }
+  if (!store.settings?.snapGuides) return { xs: [], ys: [] }
   const exclude = new Set(excludeIds)
   const xs = []
   const ys = []
@@ -459,9 +583,12 @@ function buildSnapCandidates(excludeIds = []) {
   ys.push({ value: ch / 2, type: 'canvas-center-y' })
   ys.push({ value: ch, type: 'canvas-bottom' })
 
+  const rect = viewportRect.value
   for (const n of store.nodes) {
     if (n.visible === false) continue
     if (exclude.has(n.id)) continue
+    if (n?.meta?.guide) continue
+    if (!rectIntersects(rect, nodeBoundingBox(n))) continue
     const b = nodeBoxAt(n, Number(n.x ?? 0), Number(n.y ?? 0))
 
     xs.push({ value: b.left, type: 'node-left' })
@@ -509,6 +636,9 @@ function featureWeightY(featureKey) {
 
 function snapBoxToGuides(box, candidates) {
   if (!store.settings?.snapGuides) return { dx: 0, dy: 0, gx: null, gy: null }
+  if (!candidates?.xs?.length && !candidates?.ys?.length) {
+    return { dx: 0, dy: 0, gx: null, gy: null }
+  }
   const tol = getTolerance()
 
   const fx = [
@@ -566,8 +696,11 @@ function snapBoxToGuides(box, candidates) {
 function getCanvasPointer(stage) {
   const p = stage.getPointerPosition()
   if (!p) return null
-  const x = (p.x - store.view.x) / store.view.scale
-  const y = (p.y - store.view.y) / store.view.scale
+  const rs = renderScale.value
+  const dx = store.view.x * displayScale.value
+  const dy = store.view.y * displayScale.value
+  const x = (p.x - dx) / rs
+  const y = (p.y - dy) / rs
   return { x, y }
 }
 
@@ -582,6 +715,7 @@ function onNodePointerDown(node, e) {
 
   // locked = intocable desde el canvas
   if (node?.locked) return
+  if (node?.meta?.guide) return
 
   if (e?.cancelBubble !== undefined) e.cancelBubble = true
   if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
@@ -627,7 +761,7 @@ watch(
     for (const id of list) {
       const n = stage.findOne('#' + String(id))
       const model = store.nodes.find((x) => x.id === id)
-      if (n && model && !model.locked) konvaNodes.push(n)
+      if (n && model && !model.locked && !model?.meta?.guide) konvaNodes.push(n)
     }
 
     // si alguno está locked, lo ignoramos (intocable) y dejamos anchors normales
@@ -641,6 +775,8 @@ watch(
 
 /* ================== MULTI-DRAG + SNAP ================== */
 let dragSession = null
+let dragRaf = null
+let pendingDrag = null
 
 function onDragStart(node, e) {
   // si panMode está activo, no arrastrar nodos
@@ -651,6 +787,7 @@ function onDragStart(node, e) {
 
   // locked = intocable desde el canvas
   if (node?.locked) return
+  if (node?.meta?.guide) return
 
   const t = e.target
   if (!t) return
@@ -683,6 +820,24 @@ function onDragStart(node, e) {
 }
 
 function onDragMove(node, e) {
+  if (!dragSession) return
+  if (renderQuality.value === 'low') {
+    pendingDrag = { node, e }
+    if (!dragRaf) {
+      dragRaf = requestAnimationFrame(() => {
+        const payload = pendingDrag
+        pendingDrag = null
+        dragRaf = null
+        if (payload) handleDragMove(payload.node, payload.e)
+      })
+    }
+    return
+  }
+
+  handleDragMove(node, e)
+}
+
+function handleDragMove(node, e) {
   if (!dragSession) return
   const t = e.target
   if (!t) return
@@ -727,6 +882,9 @@ function onDragMove(node, e) {
 }
 
 function onDragEnd(node, e) {
+  if (dragRaf) cancelAnimationFrame(dragRaf)
+  dragRaf = null
+  pendingDrag = null
   const stage = getStage()
   const t = e.target
 
@@ -814,14 +972,14 @@ function onWheel(e) {
   const newScale = dir > 0 ? oldScale * scaleBy : oldScale / scaleBy
 
   const mousePointTo = {
-    x: (pointer.x - store.view.x) / oldScale,
-    y: (pointer.y - store.view.y) / oldScale,
+    x: (pointer.x - store.view.x * displayScale.value) / renderScale.value,
+    y: (pointer.y - store.view.y * displayScale.value) / renderScale.value,
   }
 
   store.setView({
     scale: newScale,
-    x: pointer.x - mousePointTo.x * newScale,
-    y: pointer.y - mousePointTo.y * newScale,
+    x: pointer.x / displayScale.value - mousePointTo.x * newScale,
+    y: pointer.y / displayScale.value - mousePointTo.y * newScale,
   })
 }
 
@@ -873,6 +1031,7 @@ function beginPan(clientX, clientY) {
   panLast.value = { x: clientX, y: clientY, t: performance.now() }
   panVel.value = { vx: 0, vy: 0 }
   setCursor('grabbing')
+  if (renderQuality.value === 'low' || store.ui?.rasterOnPan) setRasterMode(true)
 }
 
 function movePan(clientX, clientY) {
@@ -880,13 +1039,14 @@ function movePan(clientX, clientY) {
 
   const dx = clientX - panStart.value.x
   const dy = clientY - panStart.value.y
-  store.setView({ x: panStart.value.vx + dx, y: panStart.value.vy + dy })
+  const ds = displayScale.value || 1
+  store.setView({ x: panStart.value.vx + dx / ds, y: panStart.value.vy + dy / ds })
 
   // calcular velocidad (px por frame aprox)
   const now = performance.now()
   const dt = Math.max(1, now - panLast.value.t)
-  const vx = ((clientX - panLast.value.x) / dt) * 16
-  const vy = ((clientY - panLast.value.y) / dt) * 16
+  const vx = (((clientX - panLast.value.x) / dt) * 16) / ds
+  const vy = (((clientY - panLast.value.y) / dt) * 16) / ds
   panVel.value = { vx, vy }
   panLast.value = { x: clientX, y: clientY, t: now }
 }
@@ -895,6 +1055,7 @@ function endPan() {
   if (!panning.value) return
   panning.value = false
   setCursor(spaceDown.value || panMode.value ? 'grab' : 'default')
+  if (renderQuality.value === 'low' || store.ui?.rasterOnPan) setRasterMode(false)
 
   // si hay velocidad, aplica inercia
   const speed = Math.hypot(panVel.value.vx, panVel.value.vy)
@@ -935,9 +1096,10 @@ function onStagePointerDown(e) {
   marquee.value.active = true
   marquee.value.start = { ...cp }
   marquee.value.end = { ...cp }
-  marquee.value.append = !!evt.shiftKey
+  const guideBox = store.ui?.guideBoxMode
+  marquee.value.append = guideBox?.active ? false : !!evt.shiftKey
 
-  if (!marquee.value.append) store.clearSelection()
+  if (!marquee.value.append && !guideBox?.active) store.clearSelection()
 }
 
 function onDocMouseMove(e) {
@@ -968,10 +1130,22 @@ function onDocMouseUp() {
       height: Math.abs(y2 - y1),
     }
 
-    if (rect.width > 6 && rect.height > 6) {
-      store.boxSelect(rect, { append: marquee.value.append })
-    } else if (!marquee.value.append) {
-      store.clearSelection()
+    const guideBox = store.ui?.guideBoxMode
+    if (guideBox?.active) {
+      if (rect.width > 6 && rect.height > 6) {
+        if (guideBox.action === 'convert') {
+          store.convertGuidesInRect?.(rect)
+        } else {
+          store.fillGuidesInRect?.(rect, { removeGuides: !!guideBox.removeGuides })
+        }
+      }
+      store.endGuideBoxMode?.()
+    } else {
+      if (rect.width > 6 && rect.height > 6) {
+        store.boxSelect(rect, { append: marquee.value.append })
+      } else if (!marquee.value.append) {
+        store.clearSelection()
+      }
     }
 
     marquee.value.active = false
@@ -1319,6 +1493,7 @@ onBeforeUnmount(() => {
 .stage-wrap {
   width: 100%;
   height: 100%;
+  position: relative;
 }
 
 .paste-hint {
@@ -1331,6 +1506,19 @@ onBeforeUnmount(() => {
   padding: 6px 12px;
   border-radius: 999px;
   font-size: 0.75rem;
+  z-index: 10;
+}
+
+.guide-hint {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: rgba(245, 158, 11, 0.92);
+  color: #1f2937;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
   z-index: 10;
 }
 </style>

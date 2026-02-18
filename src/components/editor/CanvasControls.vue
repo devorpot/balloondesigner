@@ -29,6 +29,7 @@
         <i class="bi bi-arrows-fullscreen"></i>
       </button>
       <div class="zoom-indicator" title="Nivel de zoom">{{ zoomLabel }}</div>
+      <div class="zoom-indicator" title="Escala visual">{{ displayScaleLabel }}</div>
       <button class="control-btn" type="button" title="Zoom in" @click="zoom(1)">
         <i class="bi bi-zoom-in"></i>
       </button>
@@ -50,6 +51,10 @@ const store = useEditorStore()
 
 const panMode = computed(() => !!store.ui?.panMode)
 const zoomLabel = computed(() => `${Math.round((store.view?.scale || 1) * 100)}%`)
+const displayScaleLabel = computed(() => {
+  const ds = Number(store.canvas?.displayScale || 1)
+  return `${Math.round(ds * 100)}%`
+})
 
 let zoomRaf = null
 let zoomTarget = null

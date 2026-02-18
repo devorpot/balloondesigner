@@ -6,6 +6,15 @@
           <div class="fw-bold">Canvas</div>
           <div class="text-muted panel-subtitle">Ajusta tamaño y desplazamiento</div>
         </div>
+        <div v-if="!collapsed" class="d-flex gap-2">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="applyPerformancePreset"
+          >
+            Rendimiento
+          </button>
+        </div>
         <div class="d-flex gap-2">
           <button
             class="btn btn-sm btn-outline-secondary lock-btn"
@@ -72,6 +81,69 @@
         </div>
       </div>
 
+      <div v-show="!collapsed" class="row g-2 mt-3">
+        <div class="col">
+          <label class="form-label small">Escala visual</label>
+          <input
+            type="number"
+            class="form-control form-control-sm"
+            step="0.05"
+            min="0.3"
+            max="1.5"
+            v-model.number="local.displayScale"
+            @blur="commitDisplayScale"
+          />
+          <div class="text-muted panel-subtitle mt-1">No afecta materiales ni precios</div>
+        </div>
+      </div>
+
+      <div v-show="!collapsed" class="row g-2 mt-3">
+        <div class="col">
+          <label class="form-label small">Calidad de render</label>
+          <select
+            v-model="local.renderQuality"
+            class="form-select form-select-sm"
+            @change="commitRenderQuality"
+          >
+            <option value="high">Alta</option>
+            <option value="medium">Media</option>
+            <option value="low">Baja</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-show="!collapsed" class="row g-2 mt-3">
+        <div class="col">
+          <label class="form-label small">Raster durante pan</label>
+          <div class="form-check form-switch">
+            <input
+              id="raster-pan"
+              v-model="local.rasterOnPan"
+              class="form-check-input"
+              type="checkbox"
+              @change="commitRasterOnPan"
+            />
+            <label class="form-check-label small" for="raster-pan">
+              Cachear mientras se mueve
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="!collapsed" class="row g-2 mt-3">
+        <div class="col">
+          <label class="form-label small">Limite de nodos visibles</label>
+          <input
+            type="number"
+            class="form-control form-control-sm"
+            min="200"
+            step="100"
+            v-model.number="local.maxVisibleNodes"
+            @blur="commitMaxVisibleNodes"
+          />
+        </div>
+      </div>
+
       <button
         v-show="!collapsed"
         class="btn btn-outline-primary w-100 mt-3"
@@ -124,6 +196,8 @@ const local = reactive({
   offsetY: 0,
   locked: !!store.canvas.lockRatio,
   backgroundColor: store.canvas.backgroundColor || '#ffffff',
+  displayScale: store.canvas.displayScale || 1,
+  renderQuality: store.ui?.renderQuality || 'high',
 })
 
 const collapsed = ref(false)
@@ -140,6 +214,22 @@ watch(
     local.widthCm = w
     local.heightCm = h
     aspectRatio.value = Math.max(0.01, Number(w || 1) / Math.max(0.01, Number(h || 1)))
+  },
+  { immediate: true },
+)
+
+watch(
+  () => store.canvas.displayScale,
+  (value) => {
+    local.displayScale = Number(value || 1)
+  },
+  { immediate: true },
+)
+
+watch(
+  () => store.ui?.renderQuality,
+  (value) => {
+    local.renderQuality = value || 'high'
   },
   { immediate: true },
 )
@@ -222,12 +312,44 @@ function applyOffset() {
   local.offsetY = 0
 }
 
+function commitDisplayScale() {
+  const next = Math.max(0.3, Math.min(1.5, Number(local.displayScale || 1)))
+  local.displayScale = next
+  store.setCanvasDisplayScale(next)
+}
+
+function commitRenderQuality() {
+  store.setRenderQuality(local.renderQuality)
+}
+
+function commitRasterOnPan() {
+  store.setRasterOnPan(!!local.rasterOnPan)
+}
+
+function commitMaxVisibleNodes() {
+  const next = Math.max(200, Number(local.maxVisibleNodes || 200))
+  local.maxVisibleNodes = next
+  store.setMaxVisibleNodes(next)
+}
+
 function setBackground(color) {
   store.setCanvasBackgroundColor(color)
 }
 
 function resetBackground() {
   setBackground('#ffffff')
+}
+
+function applyPerformancePreset() {
+  local.displayScale = 0.75
+  store.setCanvasDisplayScale(0.75)
+  if (store.settings?.grid) store.toggleGrid()
+  local.renderQuality = 'low'
+  store.setRenderQuality('low')
+  local.rasterOnPan = true
+  store.setRasterOnPan(true)
+  local.maxVisibleNodes = 800
+  store.setMaxVisibleNodes(800)
 }
 </script>
 

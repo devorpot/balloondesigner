@@ -36,6 +36,12 @@
           </button>
         </li>
 
+        <li>
+          <button class="dropdown-item" type="button" @click="toggleAutosave">
+            {{ store.autosave.enabled ? 'Desactivar autosave' : 'Activar autosave' }}
+          </button>
+        </li>
+
         <li><hr class="dropdown-divider" /></li>
 
         <li>
@@ -196,6 +202,11 @@
         <span v-if="store.autosave.isDirty">Cambios sin guardar</span>
         <span v-else>Guardado</span>
         <span v-if="store.autosave.lastSavedAt" class="ms-2">({{ lastSavedText }})</span>
+      </div>
+
+      <div class="autosave-indicator" :class="{ off: !store.autosave.enabled }">
+        <span class="dot"></span>
+        <span>{{ store.autosave.enabled ? 'Autosave ON' : 'Autosave OFF' }}</span>
       </div>
 
       <button class="btn btn-sm btn-primary" type="button" @click="openExportPng">
@@ -424,12 +435,17 @@ function closeMaterialsModal() {
   materialsModal?.hide?.()
 }
 
+function toggleAutosave() {
+  store.setAutosaveEnabled?.(!store.autosave.enabled)
+}
+
 function doExportPng() {
   const fileName = exportForm.fileName?.trim() || 'diseno.png'
   store.exportPng({
     pixelRatio: exportForm.pixelRatio,
     cropToContent: exportForm.cropToContent,
     fileName: fileName.endsWith('.png') ? fileName : `${fileName}.png`,
+    useDisplayScale: false,
   })
   closeExportPng()
 }
@@ -457,6 +473,37 @@ async function onImportFile(e) {
 </script>
 
 <style lang="less" scoped>
+.autosave-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #155724;
+  background: rgba(40, 167, 69, 0.12);
+  border: 1px solid rgba(40, 167, 69, 0.25);
+}
+
+.autosave-indicator .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #28a745;
+  box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+}
+
+.autosave-indicator.off {
+  color: #6c757d;
+  background: rgba(108, 117, 125, 0.1);
+  border-color: rgba(108, 117, 125, 0.2);
+}
+
+.autosave-indicator.off .dot {
+  background: #6c757d;
+  box-shadow: 0 0 0 2px rgba(108, 117, 125, 0.2);
+}
 .file-item {
   cursor: pointer;
 }

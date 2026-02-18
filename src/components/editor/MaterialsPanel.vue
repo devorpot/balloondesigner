@@ -399,7 +399,11 @@ async function exportPdf() {
     const qt = quoteTotals.value
 
     // imagen del diseño
-    const dataUrl = editor.getPngDataUrl({ pixelRatio: 2, cropToContent: true })
+    const dataUrl = editor.getPngDataUrl({
+      pixelRatio: 2,
+      cropToContent: true,
+      useDisplayScale: false,
+    })
 
     const doc = new jsPDF({ unit: 'pt', format: 'a4' })
     const pageW = doc.internal.pageSize.getWidth()
