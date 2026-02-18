@@ -114,6 +114,232 @@
 
       <div v-show="!collapsed" class="row g-2 mt-3">
         <div class="col">
+          <div class="fw-bold small">Apilado automatico</div>
+          <div class="text-muted panel-subtitle">Auto-encaja globos nuevos</div>
+          <div class="form-check form-switch mt-2">
+            <input
+              id="stack-grid"
+              v-model="local.stackGridEnabled"
+              class="form-check-input"
+              type="checkbox"
+              @change="commitStackGridEnabled"
+            />
+            <label class="form-check-label small" for="stack-grid">Activar apilado</label>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="row g-2 mt-3">
+        <div class="col">
+          <label class="form-label small">Columnas</label>
+          <input
+            type="number"
+            class="form-control form-control-sm"
+            min="1"
+            step="1"
+            v-model.number="local.stackGridCols"
+            @blur="commitStackGridConfig"
+          />
+        </div>
+        <div class="col">
+          <label class="form-label small">Separacion X (px)</label>
+          <input
+            type="number"
+            class="form-control form-control-sm"
+            min="0"
+            step="1"
+            v-model.number="local.stackGridGapX"
+            @blur="commitStackGridConfig"
+          />
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="row g-2 mt-2">
+        <div class="col">
+          <label class="form-label small">Separacion Y (px)</label>
+          <input
+            type="number"
+            class="form-control form-control-sm"
+            min="0"
+            step="1"
+            v-model.number="local.stackGridGapY"
+            @blur="commitStackGridConfig"
+          />
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="row g-2 mt-2">
+        <div class="col">
+          <label class="form-label small">Direccion</label>
+          <select
+            class="form-select form-select-sm"
+            v-model="local.stackGridDirection"
+            @change="commitStackGridConfig"
+          >
+            <option value="row">Por filas</option>
+            <option value="col">Por columnas</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="row g-2 mt-2">
+        <div class="col">
+          <label class="form-label small">Patron</label>
+          <select
+            class="form-select form-select-sm"
+            v-model="local.stackGridPattern"
+            @change="commitStackGridConfig"
+          >
+            <option value="normal">Normal</option>
+            <option value="snake">Serpiente (zig-zag)</option>
+          </select>
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="row g-2 mt-2">
+        <div class="col">
+          <div class="form-check form-switch">
+            <input
+              id="stack-grid-reset"
+              v-model="local.stackGridResetOnConfig"
+              class="form-check-input"
+              type="checkbox"
+              @change="commitStackGridResetOnConfig"
+            />
+            <label class="form-check-label small" for="stack-grid-reset">
+              Reiniciar al cambiar config
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <button
+        v-show="!collapsed && local.stackGridEnabled"
+        class="btn btn-outline-secondary w-100 mt-2"
+        type="button"
+        @click="setStackOriginToCenter"
+      >
+        Usar centro visible como origen
+      </button>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="mt-2">
+        <div class="d-flex flex-wrap gap-2">
+          <button
+            v-for="(origin, index) in local.stackGridRecentOrigins"
+            :key="`origin-${origin.x}-${origin.y}-${index}`"
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="applyRecentOrigin(index)"
+          >
+            Origen {{ index + 1 }}
+          </button>
+        </div>
+        <div v-if="local.stackGridRecentOrigins.length" class="text-muted panel-subtitle mt-1">
+          Ultimos origenes usados.
+        </div>
+      </div>
+
+      <button
+        v-show="!collapsed && local.stackGridEnabled"
+        class="btn w-100 mt-2"
+        :class="local.stackGridPickOrigin ? 'btn-primary' : 'btn-outline-secondary'"
+        type="button"
+        @click="toggleStackGridPickOrigin"
+      >
+        {{
+          local.stackGridPickOrigin ? 'Haciendo click en el canvas...' : 'Definir origen con click'
+        }}
+      </button>
+
+      <button
+        v-show="!collapsed && local.stackGridEnabled"
+        class="btn btn-outline-secondary w-100 mt-2"
+        type="button"
+        @click="resetStackRow"
+      >
+        {{ local.stackGridDirection === 'col' ? 'Reiniciar columna' : 'Reiniciar fila' }}
+      </button>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="mt-3">
+        <div class="fw-bold small">Anclas de apilado</div>
+        <div class="text-muted panel-subtitle">Guarda y vuelve a origen + cursor</div>
+        <div class="d-flex gap-2 mt-2">
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            placeholder="Nombre de ancla"
+            v-model.trim="local.stackGridAnchorName"
+          />
+          <button class="btn btn-sm btn-outline-primary" type="button" @click="addStackAnchor">
+            Guardar
+          </button>
+        </div>
+        <div v-if="local.stackGridAnchors.length" class="mt-2 d-grid gap-2">
+          <div
+            v-for="(anchor, index) in local.stackGridAnchors"
+            :key="`${anchor.label}-${index}`"
+            class="d-flex align-items-center justify-content-between gap-2"
+          >
+            <button
+              class="btn btn-sm btn-outline-secondary flex-grow-1 text-start"
+              type="button"
+              @click="applyStackAnchor(index)"
+            >
+              {{ anchor.label || `Ancla ${index + 1}` }}
+            </button>
+            <button
+              class="btn btn-sm btn-outline-danger"
+              type="button"
+              title="Eliminar"
+              @click="removeStackAnchor(index)"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="!collapsed && local.stackGridEnabled" class="mt-3">
+        <div class="fw-bold small">Presets</div>
+        <div class="text-muted panel-subtitle">Guarda la configuracion actual</div>
+        <div class="d-flex gap-2 mt-2">
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            placeholder="Nombre del preset"
+            v-model.trim="local.stackGridPresetName"
+          />
+          <button class="btn btn-sm btn-outline-primary" type="button" @click="addStackPreset">
+            Guardar
+          </button>
+        </div>
+        <div v-if="local.stackGridPresets.length" class="mt-2 d-grid gap-2">
+          <div
+            v-for="(preset, index) in local.stackGridPresets"
+            :key="`${preset.label}-${index}`"
+            class="d-flex align-items-center justify-content-between gap-2"
+          >
+            <button
+              class="btn btn-sm btn-outline-secondary flex-grow-1 text-start"
+              type="button"
+              @click="applyStackPreset(index)"
+            >
+              {{ preset.label || `Preset ${index + 1}` }}
+            </button>
+            <button
+              class="btn btn-sm btn-outline-danger"
+              type="button"
+              title="Eliminar"
+              @click="removeStackPreset(index)"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-show="!collapsed" class="row g-2 mt-3">
+        <div class="col">
           <label class="form-label small">Raster durante pan</label>
           <div class="form-check form-switch">
             <input
@@ -198,6 +424,21 @@ const local = reactive({
   backgroundColor: store.canvas.backgroundColor || '#ffffff',
   displayScale: store.canvas.displayScale || 1,
   renderQuality: store.ui?.renderQuality || 'high',
+  stackGridEnabled: !!store.ui?.stackGrid?.enabled,
+  stackGridCols: store.ui?.stackGrid?.cols || 8,
+  stackGridGapX: store.ui?.stackGrid?.gapX ?? store.ui?.stackGrid?.gap ?? 6,
+  stackGridGapY: store.ui?.stackGrid?.gapY ?? store.ui?.stackGrid?.gap ?? 6,
+  stackGridDirection: store.ui?.stackGrid?.direction || 'row',
+  stackGridPattern: store.ui?.stackGrid?.pattern || 'normal',
+  stackGridPickOrigin: !!store.ui?.stackGrid?.pickOrigin,
+  stackGridResetOnConfig: !!store.ui?.stackGrid?.resetOnConfig,
+  stackGridAnchors: Array.isArray(store.ui?.stackGrid?.anchors) ? store.ui.stackGrid.anchors : [],
+  stackGridAnchorName: '',
+  stackGridPresets: Array.isArray(store.ui?.stackGrid?.presets) ? store.ui.stackGrid.presets : [],
+  stackGridPresetName: '',
+  stackGridRecentOrigins: Array.isArray(store.ui?.stackGrid?.recentOrigins)
+    ? store.ui.stackGrid.recentOrigins
+    : [],
 })
 
 const collapsed = ref(false)
@@ -232,6 +473,25 @@ watch(
     local.renderQuality = value || 'high'
   },
   { immediate: true },
+)
+
+watch(
+  () => store.ui?.stackGrid,
+  (value) => {
+    local.stackGridEnabled = !!value?.enabled
+    local.stackGridCols = Number(value?.cols || 8)
+    const fallbackGap = value?.gap ?? 6
+    local.stackGridGapX = Number(value?.gapX ?? fallbackGap)
+    local.stackGridGapY = Number(value?.gapY ?? fallbackGap)
+    local.stackGridDirection = value?.direction || 'row'
+    local.stackGridPattern = value?.pattern || 'normal'
+    local.stackGridPickOrigin = !!value?.pickOrigin
+    local.stackGridResetOnConfig = !!value?.resetOnConfig
+    local.stackGridAnchors = Array.isArray(value?.anchors) ? value.anchors : []
+    local.stackGridPresets = Array.isArray(value?.presets) ? value.presets : []
+    local.stackGridRecentOrigins = Array.isArray(value?.recentOrigins) ? value.recentOrigins : []
+  },
+  { immediate: true, deep: true },
 )
 
 watch(
@@ -338,6 +598,78 @@ function setBackground(color) {
 
 function resetBackground() {
   setBackground('#ffffff')
+}
+
+function commitStackGridEnabled() {
+  store.setStackGridEnabled?.(!!local.stackGridEnabled)
+}
+
+function commitStackGridConfig() {
+  store.setStackGridConfig?.({
+    cols: local.stackGridCols,
+    gapX: local.stackGridGapX,
+    gapY: local.stackGridGapY,
+    direction: local.stackGridDirection,
+    pattern: local.stackGridPattern,
+  })
+}
+
+function commitStackGridResetOnConfig() {
+  store.setStackGridResetOnConfig?.(!!local.stackGridResetOnConfig)
+}
+
+function setStackOriginToCenter() {
+  const stage = store.stage
+  const view = store.view || { x: 0, y: 0, scale: 1 }
+  if (!stage) return
+  const width = typeof stage.width === 'function' ? stage.width() : stage.width
+  const height = typeof stage.height === 'function' ? stage.height() : stage.height
+  const displayScale = Number(store.canvas?.displayScale || 1)
+  const scale = Number(view.scale || 0) * displayScale
+  if (!width || !height || !scale) return
+  const dx = Number(view.x || 0) * displayScale
+  const dy = Number(view.y || 0) * displayScale
+  const x = (width / 2 - dx) / scale
+  const y = (height / 2 - dy) / scale
+  store.setStackGridOrigin?.({ x, y })
+}
+
+function resetStackRow() {
+  store.resetStackGridRow?.()
+}
+
+function addStackAnchor() {
+  store.addStackGridAnchor?.(local.stackGridAnchorName)
+  local.stackGridAnchorName = ''
+}
+
+function applyStackAnchor(index) {
+  store.applyStackGridAnchor?.(index)
+}
+
+function removeStackAnchor(index) {
+  store.removeStackGridAnchor?.(index)
+}
+
+function addStackPreset() {
+  store.addStackGridPreset?.(local.stackGridPresetName)
+  local.stackGridPresetName = ''
+}
+
+function applyStackPreset(index) {
+  store.applyStackGridPreset?.(index)
+}
+
+function removeStackPreset(index) {
+  store.removeStackGridPreset?.(index)
+}
+
+function applyRecentOrigin(index) {
+  store.applyRecentStackOrigin?.(index)
+}
+
+function toggleStackGridPickOrigin() {
+  store.setStackGridPickOrigin?.(!local.stackGridPickOrigin)
 }
 
 function applyPerformancePreset() {

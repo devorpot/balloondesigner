@@ -46,11 +46,34 @@ export const useEditorStore = defineStore('editor', {
       maxVisibleNodes: 2500,
       guideRemoveOnFill: true,
       groupEditMode: false,
+      stackGrid: {
+        enabled: false,
+        cols: 8,
+        gap: 6,
+        gapX: null,
+        gapY: null,
+        startX: 200,
+        startY: 200,
+        direction: 'row',
+        pattern: 'normal',
+        pickOrigin: false,
+        resetOnConfig: false,
+        anchors: [],
+        presets: [],
+        recentOrigins: [],
+      },
+      stackSelection: {
+        preview: false,
+      },
       guideBoxMode: {
         active: false,
         action: null,
         removeGuides: false,
       },
+    },
+    stackGridCursor: {
+      col: 0,
+      row: 0,
     },
 
     settings: {
@@ -103,12 +126,13 @@ export const useEditorStore = defineStore('editor', {
     history: {
       past: [],
       future: [],
-      max: 80,
+      max: 40,
       lock: false,
       timer: null,
       debounceMs: 250,
       batching: 0,
       batchDirty: false,
+      batchLabel: '',
     },
   }),
 
@@ -124,6 +148,61 @@ export const useEditorStore = defineStore('editor', {
 
     visibleNodes(state) {
       return state.nodes.filter((n) => n.visible !== false)
+    },
+
+    stackSelectionLayout(state) {
+      const ids = Array.isArray(state.selectedIds) ? state.selectedIds : []
+      if (ids.length < 2) return []
+
+      const nodeById = new Map(state.nodes.map((n) => [String(n.id), n]))
+      const nodes = ids
+        .map((id) => nodeById.get(String(id)))
+        .filter((n) => n && !n.locked && !n?.meta?.guide)
+
+      if (nodes.length < 2) return []
+
+      const grid = state.ui?.stackGrid || {}
+      const cols = Math.max(1, Math.round(Number(grid.cols) || 1))
+      const direction = grid.direction === 'col' ? 'col' : 'row'
+      const pattern = grid.pattern === 'snake' ? 'snake' : 'normal'
+      const gapX = Math.max(0, Math.round(Number(grid.gapX ?? grid.gap ?? 0) || 0))
+      const gapY = Math.max(0, Math.round(Number(grid.gapY ?? grid.gap ?? 0) || 0))
+
+      const boxes = nodes.map((n) => {
+        const box = nodeBoundingBox(n)
+        return {
+          id: n.id,
+          width: box.width,
+          height: box.height,
+          left: box.left,
+          top: box.top,
+        }
+      })
+
+      const maxW = Math.max(...boxes.map((b) => b.width))
+      const maxH = Math.max(...boxes.map((b) => b.height))
+      const minLeft = Math.min(...boxes.map((b) => b.left))
+      const minTop = Math.min(...boxes.map((b) => b.top))
+
+      const cellW = maxW + gapX
+      const cellH = maxH + gapY
+
+      return boxes.map((b, idx) => {
+        const row = direction === 'row' ? Math.floor(idx / cols) : idx % cols
+        const col = direction === 'row' ? idx % cols : Math.floor(idx / cols)
+        const isAlt = direction === 'row' ? row % 2 === 1 : col % 2 === 1
+        const useSnake = pattern === 'snake' && cols > 1
+        const maxIndex = cols - 1
+        const snakeCol = useSnake && direction === 'row' && isAlt ? maxIndex - col : col
+        const snakeRow = useSnake && direction === 'col' && isAlt ? maxIndex - row : row
+        return {
+          id: b.id,
+          x: minLeft + snakeCol * cellW + b.width / 2,
+          y: minTop + snakeRow * cellH + b.height / 2,
+          width: b.width,
+          height: b.height,
+        }
+      })
     },
 
     canRestore() {
@@ -185,11 +264,11 @@ export const useEditorStore = defineStore('editor', {
     },
 
     // ===== Dirty: autosave + history =====
-    markDirty() {
+    markDirty(label = '') {
       if (this.history?.lock) return
       this.autosave.isDirty = true
       this.scheduleAutosave()
-      this.scheduleHistoryCommit()
+      this.scheduleHistoryCommit(label)
     },
 
     // ===== Core =====
@@ -200,13 +279,25 @@ export const useEditorStore = defineStore('editor', {
       typeId = 'round-11',
       meta = {},
       kind = 'balloon',
+      useStackGrid = false,
     } = {}) {
+      const nextPos = useStackGrid
+        ? this.getStackGridPosition(meta, { fallbackX: x, fallbackY: y })
+        : null
       const node = {
         id: uid(),
         kind,
         typeId,
-        x: Number.isFinite(Number(x)) ? Number(x) : 100,
-        y: Number.isFinite(Number(y)) ? Number(y) : 100,
+        x: Number.isFinite(Number(nextPos?.x))
+          ? Number(nextPos.x)
+          : Number.isFinite(Number(x))
+            ? Number(x)
+            : 100,
+        y: Number.isFinite(Number(nextPos?.y))
+          ? Number(nextPos.y)
+          : Number.isFinite(Number(y))
+            ? Number(y)
+            : 100,
         rotation: 0,
         scaleX: 1,
         scaleY: 1,
@@ -227,8 +318,258 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes.push(node)
       this.select(node.id, { append: false })
-      this.markDirty()
+      this.markDirty('Agregar globo')
       return node.id
+    },
+
+    getStackGridPosition(meta = {}, { fallbackX = 200, fallbackY = 200 } = {}) {
+      const grid = this.ui?.stackGrid
+      if (!grid?.enabled) return null
+
+      const cols = Math.max(1, Math.round(Number(grid.cols) || 1))
+      const direction = grid.direction === 'col' ? 'col' : 'row'
+      const pattern = grid.pattern === 'snake' ? 'snake' : 'normal'
+      const gapX = Math.max(0, Math.round(Number(grid.gapX ?? grid.gap ?? 0) || 0))
+      const gapY = Math.max(0, Math.round(Number(grid.gapY ?? grid.gap ?? 0) || 0))
+      const rx = Number(meta?.radiusX ?? 46)
+      const ry = Number(meta?.radiusY ?? 60)
+      const cellW = rx * 2 + gapX
+      const cellH = ry * 2 + gapY
+
+      const startX = Number.isFinite(Number(grid.startX))
+        ? Number(grid.startX)
+        : Number(fallbackX || 200)
+      const startY = Number.isFinite(Number(grid.startY))
+        ? Number(grid.startY)
+        : Number(fallbackY || 200)
+
+      const col = Math.max(0, Math.round(Number(this.stackGridCursor?.col || 0)))
+      const row = Math.max(0, Math.round(Number(this.stackGridCursor?.row || 0)))
+      const useSnake = pattern === 'snake' && cols > 1
+      const maxIndex = cols - 1
+      const isAlt = direction === 'row' ? row % 2 === 1 : col % 2 === 1
+      const snakeCol = useSnake && direction === 'row' && isAlt ? maxIndex - col : col
+      const snakeRow = useSnake && direction === 'col' && isAlt ? maxIndex - row : row
+
+      const x = startX + snakeCol * cellW
+      const y = startY + snakeRow * cellH
+
+      let nextCol = col
+      let nextRow = row
+      if (direction === 'row') {
+        nextCol = col + 1
+        if (nextCol >= cols) {
+          nextCol = 0
+          nextRow += 1
+        }
+      } else {
+        nextRow = row + 1
+        if (nextRow >= cols) {
+          nextRow = 0
+          nextCol += 1
+        }
+      }
+
+      this.stackGridCursor = { col: nextCol, row: nextRow }
+      return { x, y }
+    },
+
+    setStackGridEnabled(enabled = false) {
+      if (!this.ui?.stackGrid) return
+      this.ui.stackGrid.enabled = !!enabled
+      if (enabled) this.resetStackGridCursor()
+      else this.ui.stackGrid.pickOrigin = false
+    },
+
+    setStackGridConfig({
+      cols = null,
+      gap = null,
+      gapX = null,
+      gapY = null,
+      direction = null,
+      pattern = null,
+      startX = null,
+      startY = null,
+    } = {}) {
+      if (!this.ui?.stackGrid) return
+      if (cols !== null) this.ui.stackGrid.cols = Math.max(1, Math.round(Number(cols) || 1))
+      if (gap !== null) this.ui.stackGrid.gap = Math.max(0, Math.round(Number(gap) || 0))
+      if (gapX !== null) this.ui.stackGrid.gapX = Math.max(0, Math.round(Number(gapX) || 0))
+      if (gapY !== null) this.ui.stackGrid.gapY = Math.max(0, Math.round(Number(gapY) || 0))
+      if (direction) this.ui.stackGrid.direction = direction === 'col' ? 'col' : 'row'
+      if (pattern) this.ui.stackGrid.pattern = pattern === 'snake' ? 'snake' : 'normal'
+      if (startX !== null || startY !== null) {
+        const next = clampStackOrigin(this, startX, startY)
+        if (Number.isFinite(Number(next.x))) this.ui.stackGrid.startX = Number(next.x)
+        if (Number.isFinite(Number(next.y))) this.ui.stackGrid.startY = Number(next.y)
+      }
+      if (this.ui.stackGrid.resetOnConfig) this.resetStackGridCursor()
+    },
+
+    resetStackGridRow() {
+      const dir = this.ui?.stackGrid?.direction === 'col' ? 'col' : 'row'
+      if (dir === 'row') {
+        this.stackGridCursor = { col: 0, row: this.stackGridCursor?.row || 0 }
+        return
+      }
+      this.stackGridCursor = { col: this.stackGridCursor?.col || 0, row: 0 }
+    },
+
+    setStackGridOrigin({ x, y } = {}) {
+      if (!this.ui?.stackGrid) return
+      const next = clampStackOrigin(this, x, y)
+      if (Number.isFinite(Number(next.x))) this.ui.stackGrid.startX = Number(next.x)
+      if (Number.isFinite(Number(next.y))) this.ui.stackGrid.startY = Number(next.y)
+      this.pushRecentStackOrigin(next.x, next.y)
+      this.resetStackGridCursor()
+    },
+
+    addStackGridAnchor(label = '') {
+      if (!this.ui?.stackGrid) return
+      const safeLabel =
+        String(label || '').trim() || `Ancla ${this.ui.stackGrid.anchors.length + 1}`
+      const anchors = Array.isArray(this.ui.stackGrid.anchors) ? this.ui.stackGrid.anchors : []
+      this.ui.stackGrid.anchors = anchors.concat({
+        label: safeLabel,
+        startX: Number(this.ui.stackGrid.startX || 0),
+        startY: Number(this.ui.stackGrid.startY || 0),
+        cursor: { ...this.stackGridCursor },
+      })
+    },
+
+    applyStackGridAnchor(index) {
+      if (!this.ui?.stackGrid) return false
+      const anchors = Array.isArray(this.ui.stackGrid.anchors) ? this.ui.stackGrid.anchors : []
+      const target = anchors[Number(index)]
+      if (!target) return false
+      const next = clampStackOrigin(this, target.startX, target.startY)
+      this.ui.stackGrid.startX = Number(next.x || 0)
+      this.ui.stackGrid.startY = Number(next.y || 0)
+      this.pushRecentStackOrigin(next.x, next.y)
+      const c = target.cursor || { col: 0, row: 0 }
+      this.stackGridCursor = { col: c.col || 0, row: c.row || 0 }
+      return true
+    },
+
+    removeStackGridAnchor(index) {
+      if (!this.ui?.stackGrid) return
+      const anchors = Array.isArray(this.ui.stackGrid.anchors) ? this.ui.stackGrid.anchors : []
+      const idx = Number(index)
+      if (!Number.isFinite(idx) || idx < 0 || idx >= anchors.length) return
+      this.ui.stackGrid.anchors = anchors.filter((_, i) => i !== idx)
+    },
+
+    addStackGridPreset(label = '') {
+      if (!this.ui?.stackGrid) return
+      const safeLabel =
+        String(label || '').trim() || `Preset ${this.ui.stackGrid.presets.length + 1}`
+      const presets = Array.isArray(this.ui.stackGrid.presets) ? this.ui.stackGrid.presets : []
+      const grid = this.ui.stackGrid
+      const preset = {
+        label: safeLabel,
+        cols: grid.cols,
+        gap: grid.gap,
+        gapX: grid.gapX,
+        gapY: grid.gapY,
+        startX: grid.startX,
+        startY: grid.startY,
+        direction: grid.direction,
+        pattern: grid.pattern,
+      }
+      this.ui.stackGrid.presets = presets.concat(preset)
+    },
+
+    applyStackGridPreset(index) {
+      if (!this.ui?.stackGrid) return false
+      const presets = Array.isArray(this.ui.stackGrid.presets) ? this.ui.stackGrid.presets : []
+      const target = presets[Number(index)]
+      if (!target) return false
+      this.setStackGridConfig({
+        cols: target.cols,
+        gap: target.gap,
+        gapX: target.gapX,
+        gapY: target.gapY,
+        direction: target.direction,
+        pattern: target.pattern,
+        startX: target.startX,
+        startY: target.startY,
+      })
+      this.resetStackGridCursor()
+      this.pushRecentStackOrigin(this.ui.stackGrid.startX, this.ui.stackGrid.startY)
+      return true
+    },
+
+    pushRecentStackOrigin(x, y) {
+      if (!this.ui?.stackGrid) return
+      const next = clampStackOrigin(this, x, y)
+      const list = Array.isArray(this.ui.stackGrid.recentOrigins)
+        ? this.ui.stackGrid.recentOrigins
+        : []
+      const entry = { x: Number(next.x || 0), y: Number(next.y || 0) }
+      const deduped = list.filter((o) => o.x !== entry.x || o.y !== entry.y)
+      const updated = [entry, ...deduped].slice(0, 3)
+      this.ui.stackGrid.recentOrigins = updated
+    },
+
+    applyRecentStackOrigin(index) {
+      if (!this.ui?.stackGrid) return false
+      const list = Array.isArray(this.ui.stackGrid.recentOrigins)
+        ? this.ui.stackGrid.recentOrigins
+        : []
+      const target = list[Number(index)]
+      if (!target) return false
+      const next = clampStackOrigin(this, target.x, target.y)
+      this.ui.stackGrid.startX = Number(next.x || 0)
+      this.ui.stackGrid.startY = Number(next.y || 0)
+      this.resetStackGridCursor()
+      this.pushRecentStackOrigin(next.x, next.y)
+      return true
+    },
+
+    removeStackGridPreset(index) {
+      if (!this.ui?.stackGrid) return
+      const presets = Array.isArray(this.ui.stackGrid.presets) ? this.ui.stackGrid.presets : []
+      const idx = Number(index)
+      if (!Number.isFinite(idx) || idx < 0 || idx >= presets.length) return
+      this.ui.stackGrid.presets = presets.filter((_, i) => i !== idx)
+    },
+
+    setStackGridPickOrigin(enabled = false) {
+      if (!this.ui?.stackGrid?.enabled) return
+      this.ui.stackGrid.pickOrigin = !!enabled
+    },
+
+    setStackGridResetOnConfig(enabled = false) {
+      if (!this.ui?.stackGrid) return
+      this.ui.stackGrid.resetOnConfig = !!enabled
+    },
+
+    setStackSelectionPreview(enabled = false) {
+      if (!this.ui?.stackSelection) return
+      this.ui.stackSelection.preview = !!enabled
+    },
+
+    resetStackGridCursor() {
+      this.stackGridCursor = { col: 0, row: 0 }
+    },
+
+    stackSelectionGrid() {
+      const layout = this.stackSelectionLayout
+      if (!layout.length) return false
+
+      const patchById = {}
+      for (const item of layout) {
+        patchById[item.id] = { x: item.x, y: item.y }
+      }
+
+      this.beginHistoryBatch()
+      try {
+        this.updateNodes(patchById)
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return true
     },
 
     addTextNode({ x = 160, y = 160, text = 'New text' } = {}) {
@@ -258,7 +599,7 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes.push(node)
       this.select(node.id, { append: false })
-      this.markDirty()
+      this.markDirty('Agregar texto')
       return node.id
     },
 
@@ -287,7 +628,7 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes.push(node)
       this.select(node.id, { append: false })
-      this.markDirty()
+      this.markDirty('Agregar imagen')
       return node.id
     },
 
@@ -406,7 +747,7 @@ export const useEditorStore = defineStore('editor', {
 
         if (nextNodes.length) {
           this.reindexZ()
-          this.markDirty()
+          this.markDirty('Agregar arco')
         }
       } finally {
         this.endHistoryBatch()
@@ -524,7 +865,7 @@ export const useEditorStore = defineStore('editor', {
 
         if (nextNodes.length) {
           this.reindexZ()
-          this.markDirty()
+          this.markDirty('Agregar cluster')
         }
       } finally {
         this.endHistoryBatch()
@@ -545,7 +886,7 @@ export const useEditorStore = defineStore('editor', {
         n.meta = { ...base, guide: false }
       }
 
-      this.markDirty()
+      this.markDirty('Actualizar tipo')
       return targets.length
     },
 
@@ -590,7 +931,7 @@ export const useEditorStore = defineStore('editor', {
       this.nodes.push(...nextNodes)
       this.reindexZ()
       this.setSelection(ids)
-      this.markDirty()
+      this.markDirty('Actualizar meta')
       return ids
     },
 
@@ -643,7 +984,7 @@ export const useEditorStore = defineStore('editor', {
       this.nodes.push(...nextNodes)
       this.reindexZ()
       this.setSelection(ids)
-      this.markDirty()
+      this.markDirty('Rellenar guia')
       return ids
     },
 
@@ -651,7 +992,7 @@ export const useEditorStore = defineStore('editor', {
       const node = this.nodes.find((n) => n.id === id)
       if (!node) return
       Object.assign(node, patch || {})
-      this.markDirty()
+      this.markDirty('Actualizar globo')
     },
 
     updateNodes(patchById = {}) {
@@ -663,7 +1004,7 @@ export const useEditorStore = defineStore('editor', {
         Object.assign(node, map[id] || {})
         changed = true
       }
-      if (changed) this.markDirty()
+      if (changed) this.markDirty('Actualizar globo')
     },
 
     setNodeType(id, { typeId, metaDefaults = null, replaceMeta = true } = {}) {
@@ -809,7 +1150,7 @@ export const useEditorStore = defineStore('editor', {
       ]
       applyGroupMembership(this)
       this.selectGroup(groupId)
-      this.markDirty()
+      this.markDirty('Agrupar')
       return groupId
     },
 
@@ -825,7 +1166,7 @@ export const useEditorStore = defineStore('editor', {
       this.groups = existing.filter((g) => String(g.id) !== targetId)
       applyGroupMembership(this)
       this.setSelection(childIds)
-      this.markDirty()
+      this.markDirty('Desagrupar')
     },
 
     ungroupSelected() {
@@ -856,7 +1197,7 @@ export const useEditorStore = defineStore('editor', {
         .map((entry) => entry.idx)
 
       if (!originalIndexes.length) {
-        this.markDirty()
+        this.markDirty('Actualizar globo')
         return
       }
 
@@ -868,7 +1209,7 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes = [...before, ...orderedNodes, ...after]
       this.reindexZ()
-      this.markDirty()
+      this.markDirty('Actualizar globo')
     },
 
     toggleLockSelection() {
@@ -1303,6 +1644,15 @@ export const useEditorStore = defineStore('editor', {
         })),
         view: { ...this.view },
         settings: { ...this.settings },
+        ui: {
+          stackGrid: {
+            anchors: Array.isArray(this.ui?.stackGrid?.anchors) ? this.ui.stackGrid.anchors : [],
+            presets: Array.isArray(this.ui?.stackGrid?.presets) ? this.ui.stackGrid.presets : [],
+            recentOrigins: Array.isArray(this.ui?.stackGrid?.recentOrigins)
+              ? this.ui.stackGrid.recentOrigins
+              : [],
+          },
+        },
         canvas: {
           widthCm: Number(this.canvas.widthCm || 0),
           heightCm: Number(this.canvas.heightCm || 0),
@@ -1400,6 +1750,13 @@ export const useEditorStore = defineStore('editor', {
         this.settings.grid = !!data.settings.grid
         this.settings.snap = !!data.settings.snap
         this.settings.snapStep = Number(data.settings.snapStep || 10)
+      }
+
+      if (data.ui?.stackGrid) {
+        const sg = data.ui.stackGrid
+        if (Array.isArray(sg.anchors)) this.ui.stackGrid.anchors = sg.anchors
+        if (Array.isArray(sg.presets)) this.ui.stackGrid.presets = sg.presets
+        if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
       this.clearSelection()
@@ -1523,6 +1880,13 @@ export const useEditorStore = defineStore('editor', {
         this.settings.grid = !!data.settings.grid
         this.settings.snap = !!data.settings.snap
         this.settings.snapStep = Number(data.settings.snapStep || 10)
+      }
+
+      if (data.ui?.stackGrid) {
+        const sg = data.ui.stackGrid
+        if (Array.isArray(sg.anchors)) this.ui.stackGrid.anchors = sg.anchors
+        if (Array.isArray(sg.presets)) this.ui.stackGrid.presets = sg.presets
+        if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
       this.clearSelection()
@@ -1660,6 +2024,16 @@ export const useEditorStore = defineStore('editor', {
       const nodes = this.selectedNodes
       if (!nodes.length) return false
 
+      const groups = []
+      for (const g of this.groups || []) {
+        const childIds = nodes
+          .filter((n) => String(n.groupId) === String(g.id))
+          .map((n) => String(n.id))
+        if (childIds.length >= 2) {
+          groups.push({ id: g.id, name: String(g.name || 'Grupo'), childIds })
+        }
+      }
+
       let minX = Infinity,
         minY = Infinity,
         maxX = -Infinity,
@@ -1676,6 +2050,7 @@ export const useEditorStore = defineStore('editor', {
       const bbox = { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 
       this.clipboard.nodes = nodes.map((n) => ({
+        id: n.id,
         dx: Number(n.x ?? 0) - bbox.x,
         dy: Number(n.y ?? 0) - bbox.y,
 
@@ -1693,6 +2068,8 @@ export const useEditorStore = defineStore('editor', {
 
       this.clipboard.bbox = bbox
       this.clipboard.node = this.clipboard.nodes[0] || null
+      this.clipboard.groups = groups
+      this.clipboard.group = groups.length === 1 ? groups[0] : null
 
       return true
     },
@@ -1732,6 +2109,7 @@ export const useEditorStore = defineStore('editor', {
       this.beginHistoryBatch()
       try {
         const newIds = []
+        const idMap = new Map()
 
         for (const c of clips) {
           const px = baseX + c.dx + ox
@@ -1795,7 +2173,23 @@ export const useEditorStore = defineStore('editor', {
             }
           }
 
-          if (newId) newIds.push(newId)
+          if (newId) {
+            newIds.push(newId)
+            idMap.set(String(c.id), newId)
+          }
+        }
+
+        const groups = Array.isArray(this.clipboard?.groups)
+          ? this.clipboard.groups
+          : this.clipboard?.group
+            ? [this.clipboard.group]
+            : []
+
+        for (const group of groups) {
+          const childIds = (group.childIds || []).map((id) => idMap.get(String(id))).filter(Boolean)
+          if (childIds.length > 1) {
+            this.createGroup({ name: group.name || 'Grupo', childIds })
+          }
         }
 
         this.setSelection(newIds)
@@ -1918,8 +2312,18 @@ export const useEditorStore = defineStore('editor', {
 
     // ===== History =====
     initHistory() {
-      this.history.past = [this._captureSnapshot()]
+      this.history.past = [this._withHistoryMeta(this._captureSnapshot(), 'Inicio')]
       this.history.future = []
+    },
+
+    _withHistoryMeta(snap, label = '') {
+      return {
+        ...snap,
+        meta: {
+          timestamp: new Date().toISOString(),
+          label: String(label || 'Edicion'),
+        },
+      }
     },
 
     _captureSnapshot() {
@@ -1930,6 +2334,7 @@ export const useEditorStore = defineStore('editor', {
         settings: deepClone(toRaw(this.settings)),
         groups: deepClone(toRaw(this.groups)),
         canvas: deepClone(toRaw(this.canvas)),
+        stackGridCursor: deepClone(toRaw(this.stackGridCursor)),
       }
     },
 
@@ -1943,23 +2348,27 @@ export const useEditorStore = defineStore('editor', {
         this.groups = deepClone(snap.groups || [])
         applyGroupMembership(this)
         this.canvas = deepClone(snap.canvas || createDefaultCanvasSettings())
+        this.stackGridCursor = deepClone(snap.stackGridCursor || { col: 0, row: 0 })
         this.clearSelection()
       } finally {
         this.history.lock = false
       }
     },
 
-    _pushHistory() {
+    _pushHistory(label = '') {
       if (this.history.lock) return
 
       const snap = this._captureSnapshot()
       const past = this.history.past
       const last = past[past.length - 1]
 
-      // evita duplicados idénticos
-      if (last && JSON.stringify(last) === JSON.stringify(snap)) return
+      const lastClean = last ? { ...last } : null
+      if (lastClean) delete lastClean.meta
 
-      past.push(snap)
+      // evita duplicados idénticos
+      if (lastClean && JSON.stringify(lastClean) === JSON.stringify(snap)) return
+
+      past.push(this._withHistoryMeta(snap, label))
 
       if (past.length > this.history.max) {
         past.splice(0, past.length - this.history.max)
@@ -1968,18 +2377,19 @@ export const useEditorStore = defineStore('editor', {
       this.history.future = []
     },
 
-    scheduleHistoryCommit() {
+    scheduleHistoryCommit(label = '') {
       if (this.history.lock) return
 
       if (this.history.batching > 0) {
         this.history.batchDirty = true
+        this.history.batchLabel = label || this.history.batchLabel
         return
       }
 
       if (this.history.timer) clearTimeout(this.history.timer)
       this.history.timer = window.setTimeout(() => {
         this.history.timer = null
-        this._pushHistory()
+        this._pushHistory(label)
       }, this.history.debounceMs)
     },
 
@@ -1991,7 +2401,9 @@ export const useEditorStore = defineStore('editor', {
       this.history.batching = Math.max(0, this.history.batching - 1)
       if (this.history.batching === 0 && this.history.batchDirty) {
         this.history.batchDirty = false
-        this._pushHistory()
+        const label = this.history.batchLabel || ''
+        this.history.batchLabel = ''
+        this._pushHistory(label)
       }
     },
 
@@ -2027,6 +2439,34 @@ export const useEditorStore = defineStore('editor', {
       const next = future.shift()
       this.history.past.push(next)
       this._restoreSnapshot(next)
+
+      this.autosave.isDirty = true
+      this.scheduleAutosave()
+
+      return true
+    },
+
+    goToHistoryIndex(index) {
+      if (this.history.lock) return false
+      const past = this.history.past
+      if (!past.length) return false
+
+      if (this.history.timer) {
+        clearTimeout(this.history.timer)
+        this.history.timer = null
+        this._pushHistory()
+      }
+
+      const targetIndex = Math.max(0, Math.min(past.length - 1, Number(index) || 0))
+      const currentIndex = past.length - 1
+      if (targetIndex === currentIndex) return true
+
+      const target = past[targetIndex]
+      if (!target) return false
+
+      const removed = past.splice(targetIndex + 1)
+      this.history.future = removed.concat(this.history.future)
+      this._restoreSnapshot(target)
 
       this.autosave.isDirty = true
       this.scheduleAutosave()
@@ -2200,5 +2640,18 @@ function applyGroupMembership(store) {
   const validGroupIds = new Set(nextGroups.map((g) => g.id))
   if (store.selectedGroupId && !validGroupIds.has(String(store.selectedGroupId))) {
     store.selectedGroupId = null
+  }
+}
+
+function clampStackOrigin(store, x, y) {
+  const widthCm = Math.max(MIN_CANVAS_CM, Number(store.canvas?.widthCm ?? MIN_CANVAS_CM))
+  const heightCm = Math.max(MIN_CANVAS_CM, Number(store.canvas?.heightCm ?? MIN_CANVAS_CM))
+  const maxX = widthCm * PX_PER_CM
+  const maxY = heightCm * PX_PER_CM
+  const nextX = Number.isFinite(Number(x)) ? Number(x) : Number(store.ui?.stackGrid?.startX || 0)
+  const nextY = Number.isFinite(Number(y)) ? Number(y) : Number(store.ui?.stackGrid?.startY || 0)
+  return {
+    x: clamp(nextX, 0, maxX),
+    y: clamp(nextY, 0, maxY),
   }
 }

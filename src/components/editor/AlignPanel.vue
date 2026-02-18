@@ -81,6 +81,27 @@
         </div>
       </div>
 
+      <div v-show="!collapsed" class="section mt-3">
+        <div class="section-label">Apilar seleccion</div>
+        <div class="row g-2 align-grid">
+          <button
+            @click="toggleStackPreview"
+            class="btn btn-sm btn-outline-secondary"
+            :class="{ active: stackPreviewActive }"
+          >
+            Preview
+          </button>
+          <button
+            @click="applyStackSelection"
+            class="btn btn-sm btn-outline-primary"
+            :disabled="selectedCount < 2"
+          >
+            Aplicar
+          </button>
+        </div>
+        <div class="text-muted small mt-2">Usa la configuracion del apilado del canvas.</div>
+      </div>
+
       <div v-show="!collapsed" v-if="selectedCount < 2" class="text-muted small mt-2">
         Selecciona al menos 2 elementos.
       </div>
@@ -97,6 +118,7 @@ const selectedCount = computed(() => store.selectedIds.length)
 const collapsed = ref(false)
 const lastAlign = ref('')
 const lastDistribute = ref('')
+const stackPreviewActive = computed(() => !!store.ui?.stackSelection?.preview)
 
 onMounted(() => {
   try {
@@ -125,6 +147,16 @@ function distribute(axis) {
   if (selectedCount.value < 3) return
   store.distributeSelection(axis)
   lastDistribute.value = axis
+}
+
+function toggleStackPreview() {
+  store.setStackSelectionPreview?.(!stackPreviewActive.value)
+}
+
+function applyStackSelection() {
+  if (selectedCount.value < 2) return
+  const applied = store.stackSelectionGrid?.()
+  if (applied) store.setStackSelectionPreview?.(false)
 }
 </script>
 

@@ -79,6 +79,14 @@
           >
             Calculador
           </button>
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: activeTab === 'history' }"
+            @click="activeTab = 'history'"
+          >
+            Historial
+          </button>
         </div>
 
         <div class="right-panels">
@@ -91,6 +99,9 @@
           </div>
           <div v-show="activeTab === 'calc'" class="panel-stack">
             <MaterialsPanel />
+          </div>
+          <div v-show="activeTab === 'history'" class="panel-stack">
+            <HistoryPanel />
           </div>
         </div>
       </div>
@@ -113,6 +124,7 @@ import PropertiesPanel from '@/components/editor/PropertiesPanel.vue'
 import AlignPanel from '@/components/editor/AlignPanel.vue'
 import CanvasSettingsPanel from '@/components/editor/CanvasSettingsPanel.vue'
 import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
+import HistoryPanel from '@/components/editor/HistoryPanel.vue'
 
 const store = useEditorStore()
 const wrap = ref(null)
@@ -298,7 +310,7 @@ function snap(v, step) {
 
 .right-tabs {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
   background: #f5f7fb;
   border-radius: 14px;

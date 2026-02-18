@@ -98,6 +98,7 @@
           @touchmove="onStageTouchMove"
           @touchend="onStageTouchEnd"
           @touchcancel="onStageTouchEnd"
+          @mouseleave="onStagePointerLeave"
           @dblclick="onStageDoubleClick"
           @dbltap="onStageDoubleClick"
         >
@@ -110,6 +111,30 @@
           <v-fast-layer v-if="store.settings.grid" :config="{ listening: false }">
             <v-line v-for="l in gridLines" :key="l.key" :config="l.cfg" />
           </v-fast-layer>
+
+          <!-- STACK GRID PREVIEW -->
+          <v-layer v-if="stackGridPreview" :config="{ listening: false }">
+            <v-ellipse :config="stackGridPreview" />
+          </v-layer>
+
+          <!-- STACK SELECTION PREVIEW -->
+          <v-layer v-if="stackSelectionPreview.length" :config="{ listening: false }">
+            <v-rect
+              v-for="item in stackSelectionPreview"
+              :key="item.id"
+              :config="{
+                x: item.x - item.width / 2,
+                y: item.y - item.height / 2,
+                width: item.width,
+                height: item.height,
+                stroke: '#12a4b7',
+                strokeWidth: 1,
+                dash: [6, 4],
+                fill: 'rgba(18, 164, 183, 0.05)',
+                listening: false,
+              }"
+            />
+          </v-layer>
 
           <!-- NODES -->
           <v-layer ref="layerRef">
@@ -135,6 +160,7 @@
                 </template>
                 <template v-else>
                   <v-ellipse :config="ellipseConfig(node)" />
+                  <v-ellipse v-if="renderQuality !== 'low'" :config="innerShadeConfig(node)" />
                   <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(node)" />
                   <v-circle v-if="renderQuality === 'high'" :config="knotConfig(node)" />
                 </template>
@@ -205,12 +231,55 @@ const stageRef = ref(null)
 const layerRef = ref(null)
 const trRef = ref(null)
 const rasterActive = ref(false)
+const pointerActive = ref(false)
 
 const displayScale = computed(() => {
   const n = Number(store.canvas?.displayScale || 1)
   return Math.min(MAX_DISPLAY_SCALE, Math.max(MIN_DISPLAY_SCALE, n))
 })
 const renderScale = computed(() => store.view.scale * displayScale.value)
+
+const stackGridPreview = computed(() => {
+  if (!pointerActive.value) return null
+  const grid = store.ui?.stackGrid
+  if (!grid?.enabled || grid?.pickOrigin) return null
+
+  const startX = Number.isFinite(Number(grid.startX)) ? Number(grid.startX) : 200
+  const startY = Number.isFinite(Number(grid.startY)) ? Number(grid.startY) : 200
+  const gapX = Math.max(0, Math.round(Number(grid.gapX ?? grid.gap ?? 0) || 0))
+  const gapY = Math.max(0, Math.round(Number(grid.gapY ?? grid.gap ?? 0) || 0))
+
+  const cursor = store.stackGridCursor || { col: 0, row: 0 }
+  const col = Math.max(0, Math.round(Number(cursor.col || 0)))
+  const row = Math.max(0, Math.round(Number(cursor.row || 0)))
+
+  const meta = store.selectedNode?.meta || {}
+  const rx = Number(meta?.radiusX ?? 46)
+  const ry = Number(meta?.radiusY ?? 60)
+  const cellW = rx * 2 + gapX
+  const cellH = ry * 2 + gapY
+
+  const x = startX + col * cellW
+  const y = startY + row * cellH
+
+  return {
+    x,
+    y,
+    radiusX: rx,
+    radiusY: ry,
+    fill: 'rgba(18, 164, 183, 0.08)',
+    stroke: '#12a4b7',
+    strokeWidth: 1,
+    dash: [4, 4],
+    opacity: 0.7,
+    listening: false,
+  }
+})
+
+const stackSelectionPreview = computed(() => {
+  if (!store.ui?.stackSelection?.preview) return []
+  return store.stackSelectionLayout || []
+})
 
 const canvasSpecs = computed(() => {
   const widthCm = Math.max(MIN_CANVAS_CM, Number(store.canvas.widthCm ?? 160))
@@ -339,7 +408,14 @@ function setCursor(mode) {
 /* ================== PAN MODE ================== */
 const panMode = computed(() => !!store.ui?.panMode)
 const renderQuality = computed(() => store.ui?.renderQuality || 'high')
-const maxRenderNodes = computed(() => Number(store.ui?.maxVisibleNodes || 2500))
+const maxRenderNodes = computed(() => {
+  const base = Number(store.ui?.maxVisibleNodes || 2500)
+  const scale = renderScale.value
+  if (scale <= 0.35) return Math.max(300, Math.round(base * 0.25))
+  if (scale <= 0.6) return Math.max(600, Math.round(base * 0.45))
+  if (scale <= 0.9) return Math.max(1000, Math.round(base * 0.7))
+  return base
+})
 
 watch(panMode, (value) => {
   if (panning.value || spaceDown.value) return
@@ -440,6 +516,26 @@ function shineConfig() {
   }
 }
 
+function innerShadeConfig(n) {
+  const rx = Number(n?.meta?.radiusX ?? 46)
+  const ry = Number(n?.meta?.radiusY ?? 60)
+  const maxR = Math.max(rx, ry)
+
+  return {
+    x: 0,
+    y: 0,
+    radiusX: rx,
+    radiusY: ry,
+    fillRadialGradientStartPoint: { x: 0, y: 0 },
+    fillRadialGradientEndPoint: { x: 0, y: 0 },
+    fillRadialGradientStartRadius: 0,
+    fillRadialGradientEndRadius: maxR,
+    fillRadialGradientColorStops: [0, 'rgba(0,0,0,0)', 0.6, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.22)'],
+    listening: false,
+    perfectDrawEnabled: false,
+  }
+}
+
 function knotConfig(n) {
   const ry = Number(n?.meta?.radiusY ?? 60)
   const show = n?.meta?.knot !== false
@@ -458,6 +554,7 @@ function knotConfig(n) {
 /* ================== GRID ================== */
 const gridSize = 50
 const gridLines = computed(() => {
+  if (renderScale.value <= 0.35) return []
   const lines = []
   const maxWidth = canvasWidth.value
   const maxHeight = canvasHeight.value
@@ -805,7 +902,11 @@ function getCanvasPointer(stage) {
 }
 
 function onStagePointerMove() {
-  // solo para mantener pointer actualizado si luego lo ocupas
+  pointerActive.value = true
+}
+
+function onStagePointerLeave() {
+  pointerActive.value = false
 }
 
 /* ================== SELECTION ================== */
@@ -1059,6 +1160,22 @@ function onTransformEnd() {
 function onStageClick(e) {
   const stage = getStage()
   if (!stage) return
+
+  if (store.ui?.stackGrid?.pickOrigin) {
+    const pointer = stage.getPointerPosition()
+    const scale = renderScale.value
+    if (pointer && scale) {
+      const dx = store.view.x * displayScale.value
+      const dy = store.view.y * displayScale.value
+      const x = (pointer.x - dx) / scale
+      const y = (pointer.y - dy) / scale
+      store.setStackGridOrigin?.({ x, y })
+      store.setStackGridPickOrigin?.(false)
+    }
+    if (e?.cancelBubble !== undefined) e.cancelBubble = true
+    if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
+    return
+  }
 
   const target = e.target
   const clickedOnStage = target === stage
@@ -1460,7 +1577,11 @@ function onStageContextMenu(e) {
         (!groupEditMode.value ||
           (model.groupId && String(model.groupId) === String(store.selectedGroupId)))
       ) {
-        store.select(String(id))
+        if (model.groupId && !groupEditMode.value) {
+          store.selectGroup(model.groupId)
+        } else {
+          store.select(String(id))
+        }
       }
     }
   } else {

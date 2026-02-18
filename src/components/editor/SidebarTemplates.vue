@@ -132,6 +132,17 @@
               Insertar arco
             </button>
             <div class="text-muted xsmall mt-1">Usa el globo actual y el tamano del catalogo.</div>
+            <div class="preset-row mt-2">
+              <button class="btn btn-sm btn-light" type="button" @click="insertArcQuickPreset('s')">
+                Arco pequeno
+              </button>
+              <button class="btn btn-sm btn-light" type="button" @click="insertArcQuickPreset('m')">
+                Arco mediano
+              </button>
+              <button class="btn btn-sm btn-light" type="button" @click="insertArcQuickPreset('l')">
+                Arco grande
+              </button>
+            </div>
           </div>
 
           <button
@@ -875,6 +886,43 @@ function insertArcQuick() {
     rows: arc.value.rows,
     radius: radius,
     spacing: arc.value.spacing,
+    typeId: arc.value.typeId,
+    metaDefaults,
+    colors: resolveTemplateColors(),
+    colorMode: templateColorMode.value,
+    group: true,
+    guide: false,
+  })
+}
+
+function insertArcQuickPreset(size) {
+  const canvas = getCanvasSize()
+  const factor = size === 's' ? 0.5 : size === 'l' ? 0.92 : 0.7
+  const baseWidth = canvas
+    ? Math.max(200, Math.round(canvas.w * factor))
+    : Math.max(200, Math.round(Number(arc.value.width || 520) * factor))
+  const baseHeight = canvas
+    ? Math.max(140, Math.round(canvas.h * (factor * 0.6)))
+    : Math.max(140, Math.round(Number(arc.value.height || 240) * factor))
+
+  const baseRadius = arcRadiusFromType(arcType.value) || arc.value.radius
+  const baseSpacing = Math.max(0, Math.round(Number(arc.value.spacing || 0)))
+  const estCount = Math.max(
+    6,
+    Math.round((baseWidth / Math.max(1, baseRadius * 1.3 + baseSpacing)) * arc.value.rows),
+  )
+
+  const p = getAddPoint({ center: true })
+  const metaDefaults = arcType.value ? defaultMetaForType(arcType.value) : null
+  editor.addArcTemplate({
+    centerX: p.x,
+    centerY: p.y + baseHeight / 2,
+    width: baseWidth,
+    height: baseHeight,
+    count: estCount,
+    rows: arc.value.rows,
+    radius: baseRadius,
+    spacing: baseSpacing,
     typeId: arc.value.typeId,
     metaDefaults,
     colors: resolveTemplateColors(),

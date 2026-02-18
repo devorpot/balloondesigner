@@ -299,6 +299,7 @@ function addType(type, opts = {}) {
     color: quickAddColor.value,
     typeId: type.id,
     meta: defaultMetaForType(type),
+    useStackGrid: true,
   })
 }
 

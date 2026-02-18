@@ -16,7 +16,7 @@
           "sizeIn": 5,
           "cost": 3,
           "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
-          "colors": ["#f44336", "#e53935"],
+          "colors": ["#f44336", "#e53935","#000000"],
           "default": { "radiusX": 26, "radiusY": 32, "knot": true }
         },
         {

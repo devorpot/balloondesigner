@@ -61,6 +61,27 @@
       </ul>
     </div>
 
+    <div class="btn-group btn-group-sm" role="group">
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="store.undo()"
+        :disabled="!canUndo"
+        title="Deshacer (Ctrl/Cmd+Z)"
+      >
+        <i class="bi bi-arrow-counterclockwise"></i>
+      </button>
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="store.redo()"
+        :disabled="!canRedo"
+        title="Rehacer (Ctrl/Cmd+Shift+Z)"
+      >
+        <i class="bi bi-arrow-clockwise"></i>
+      </button>
+    </div>
+
     <!-- Edición -->
     <div class="btn-group btn-group-sm" role="group">
       <button class="btn btn-outline-secondary" type="button" @click="add" title="Agregar globo">
@@ -302,6 +323,8 @@ import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
 const store = useEditorStore()
 
 const selCount = computed(() => store.selectedIds?.length || 0)
+const canUndo = computed(() => (store.history?.past || []).length > 1)
+const canRedo = computed(() => (store.history?.future || []).length > 0)
 
 const lockLabel = computed(() => {
   const sel = store.selectedNodes || []
@@ -347,7 +370,7 @@ onBeforeUnmount(() => {
 })
 
 function add() {
-  store.addNode()
+  store.addNode({ useStackGrid: true })
 }
 
 function addText() {
