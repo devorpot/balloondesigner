@@ -1,0 +1,221 @@
+{
+  "categories": [
+    {
+      "family": "Redondo",
+      "id": "redondo",
+      "label": "Globos redondos",
+      "colors": ["#ff6b6b", "#ffb347", "#ffd54f", "#80d8ff"],
+      "measurementLabel": "Diámetro (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "round-5",
+          "family": "Redondo",
+          "name": "R5 Redondo",
+          "sizeIn": 5,
+          "cost": 3,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#f44336", "#e53935"],
+          "default": { "radiusX": 26, "radiusY": 32, "knot": true }
+        },
+        {
+          "id": "round-9",
+          "family": "Redondo",
+          "name": "R9 Redondo",
+          "sizeIn": 9,
+          "cost": 5,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#2196f3", "#1e88e5"],
+          "default": { "radiusX": 40, "radiusY": 52, "knot": true }
+        },
+        {
+          "id": "round-11",
+          "family": "Redondo",
+          "name": "R11 Redondo",
+          "sizeIn": 11,
+          "cost": 7,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#4caf50"],
+          "default": { "radiusX": 46, "radiusY": 60, "knot": true }
+        },
+        {
+          "id": "round-16",
+          "family": "Redondo",
+          "name": "R16 Redondo",
+          "sizeIn": 16,
+          "cost": 12,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#ffd54f"],
+          "default": { "radiusX": 62, "radiusY": 82, "knot": true }
+        }
+      ]
+    },
+    {
+      "family": "Modelado",
+      "id": "modelado",
+      "label": "Modelado",
+      "colors": ["#ff8a65", "#ba68c8", "#64b5f6"],
+      "measurementLabel": "Altura aproximada (px)",
+      "measurementType": "radius",
+      "sort": "name",
+      "types": [
+        {
+          "id": "260",
+          "family": "Modelado",
+          "name": "260 (modelado)",
+          "sizeIn": null,
+          "cost": 6,
+          "inflation": { "minScale": 0.6, "maxScale": 1.0, "defaultScale": 0.9 },
+          "colors": ["#000000", "#ffffff"],
+          "default": { "radiusX": 18, "radiusY": 90, "knot": false }
+        },
+        {
+          "id": "160",
+          "family": "Modelado",
+          "name": "160 (modelado)",
+          "sizeIn": null,
+          "cost": 5,
+          "inflation": { "minScale": 0.6, "maxScale": 1.0, "defaultScale": 0.9 },
+          "colors": ["#000000", "#ffffff"],
+          "default": { "radiusX": 14, "radiusY": 70, "knot": false }
+        }
+      ]
+    },
+    {
+      "family": "Link",
+      "id": "link",
+      "label": "Link",
+      "colors": ["#4caf50", "#81c784", "#c5e1a5"],
+      "measurementLabel": "Diámetro (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "link-12",
+          "family": "Link",
+          "name": "Link 12\"",
+          "sizeIn": 12,
+          "cost": 9,
+          "inflation": { "minScale": 0.75, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#4caf50", "#1e7e34"],
+          "default": { "radiusX": 46, "radiusY": 60, "knot": true }
+        }
+      ]
+    },
+    {
+      "family": "Figura",
+      "id": "figura",
+      "label": "Figuras",
+      "colors": ["#f06292", "#ffb74d", "#90a4ae"],
+      "measurementLabel": "Tamaño (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "heart-11",
+          "family": "Figura",
+          "name": "Corazón 11\"",
+          "sizeIn": 11,
+          "cost": 10,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#e91e63", "#c2185b"],
+          "default": { "radiusX": 52, "radiusY": 52, "knot": true, "shape": "heart" }
+        }
+      ]
+    },
+    {
+      "family": "Premium",
+      "id": "premium",
+      "label": "Premium",
+      "colors": ["#ad1457", "#4a148c", "#1e88e5"],
+      "measurementLabel": "Diámetro premium (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "premium-12",
+          "family": "Premium",
+          "name": "Premium 12\"",
+          "sizeIn": 12,
+          "cost": 14,
+          "inflation": { "minScale": 0.7, "maxScale": 1.05, "defaultScale": 1.0 },
+          "colors": ["#7c4dff", "#536dfe"],
+          "default": { "radiusX": 52, "radiusY": 66, "knot": true, "finish": "gloss" }
+        },
+        {
+          "id": "premium-14",
+          "family": "Premium",
+          "name": "Premium 14\"",
+          "sizeIn": 14,
+          "cost": 17,
+          "inflation": { "minScale": 0.7, "maxScale": 1.05, "defaultScale": 1.0 },
+          "colors": ["#ffab00", "#ff6f00"],
+          "default": { "radiusX": 58, "radiusY": 72, "knot": true, "finish": "pearlescent" }
+        }
+      ]
+    },
+    {
+      "family": "Metallic",
+      "id": "metallic",
+      "label": "Metallic",
+      "colors": ["#d500f9", "#00bfa5", "#ffd600"],
+      "measurementLabel": "Diámetro metálico (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "metallic-10",
+          "family": "Metallic",
+          "name": "Metallic 10\"",
+          "sizeIn": 10,
+          "cost": 12,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#9c27b0", "#e91e63"],
+          "default": { "radiusX": 48, "radiusY": 60, "finish": "metallic" }
+        },
+        {
+          "id": "metallic-12",
+          "family": "Metallic",
+          "name": "Metallic 12\"",
+          "sizeIn": 12,
+          "cost": 14,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#ffeb3b", "#ff9800"],
+          "default": { "radiusX": 52, "radiusY": 70, "finish": "metallic" }
+        }
+      ]
+    },
+    {
+      "family": "Jumbo",
+      "id": "jumbo",
+      "label": "Jumbo",
+      "colors": ["#1e88e5", "#00acc1", "#7cb342"],
+      "measurementLabel": "Diámetro jumbo (\")",
+      "measurementType": "sizeIn",
+      "sort": "size",
+      "types": [
+        {
+          "id": "jumbo-24",
+          "family": "Jumbo",
+          "name": "Jumbo 24\"",
+          "sizeIn": 24,
+          "cost": 25,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#795548", "#607d8b"],
+          "default": { "radiusX": 80, "radiusY": 100, "finish": "matte" }
+        },
+        {
+          "id": "jumbo-30",
+          "family": "Jumbo",
+          "name": "Jumbo 30\"",
+          "sizeIn": 30,
+          "cost": 32,
+          "inflation": { "minScale": 0.7, "maxScale": 1.0, "defaultScale": 1.0 },
+          "colors": ["#c62828", "#d84315"],
+          "default": { "radiusX": 90, "radiusY": 120, "finish": "gloss" }
+        }
+      ]
+    }
+  ]
+}

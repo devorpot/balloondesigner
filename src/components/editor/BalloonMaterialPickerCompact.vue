@@ -76,9 +76,7 @@
           </div>
         </button>
 
-        <div v-if="!filtered.length" class="empty text-muted small">
-          No hay resultados.
-        </div>
+        <div v-if="!filtered.length" class="empty text-muted small">No hay resultados.</div>
       </div>
 
       <div class="footer small text-muted mt-3">
@@ -121,11 +119,11 @@ const selectedId = ref('')
 watch(
   () => props.items,
   (list) => {
-    if (selectedId.value && !list.some(x => x.id === selectedId.value)) {
+    if (selectedId.value && !list.some((x) => x.id === selectedId.value)) {
       selectedId.value = ''
     }
   },
-  { deep: true }
+  { deep: true },
 )
 
 const filtered = computed(() => {
@@ -134,7 +132,7 @@ const filtered = computed(() => {
 
   if (!text) return list
 
-  return list.filter(it => {
+  return list.filter((it) => {
     const name = String(it?.name || '').toLowerCase()
     const group = String(it?.group || '').toLowerCase()
     const code = String(it?.code || '').toLowerCase()
@@ -153,7 +151,8 @@ function qtyOf(id) {
 }
 
 function setQty(id, qty) {
-  const next = { ...(props.modelValue || {}) }
+  const base = props.modelValue
+  const next = base && typeof base === 'object' ? { ...base } : {}
   const v = normalizeQty(qty)
 
   if (v <= 0) delete next[id]
@@ -226,7 +225,7 @@ function thumbStyle(it) {
 
 .row-item {
   width: 100%;
-  border: 1px solid rgba(0,0,0,.08);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 14px;
   background: #fff;
   padding: 10px 10px;
@@ -238,8 +237,8 @@ function thumbStyle(it) {
 }
 
 .row-item.active {
-  border-color: rgba(13, 110, 253, .35);
-  box-shadow: 0 0 0 3px rgba(13, 110, 253, .10);
+  border-color: rgba(13, 110, 253, 0.35);
+  box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.1);
 }
 
 .left {
@@ -254,8 +253,8 @@ function thumbStyle(it) {
   width: 34px;
   height: 34px;
   border-radius: 999px;
-  border: 1px solid rgba(0,0,0,.10);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.25);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
   flex: 0 0 auto;
 }
 
@@ -281,8 +280,8 @@ function thumbStyle(it) {
   min-width: 54px;
   height: 30px;
   border-radius: 999px;
-  border: 1px solid rgba(0,0,0,.08);
-  background: rgba(0,0,0,.02);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.02);
   padding: 0 10px;
   display: flex;
   align-items: center;
@@ -314,14 +313,14 @@ function thumbStyle(it) {
 }
 
 .empty {
-  border: 1px dashed rgba(0,0,0,.15);
+  border: 1px dashed rgba(0, 0, 0, 0.15);
   border-radius: 14px;
   padding: 14px;
   text-align: center;
 }
 
 .footer {
-  border-top: 1px dashed rgba(0,0,0,.12);
+  border-top: 1px dashed rgba(0, 0, 0, 0.12);
   padding-top: 10px;
 }
 </style>

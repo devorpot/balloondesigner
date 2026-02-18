@@ -1,6 +1,12 @@
 // editor.store.js
 import { defineStore } from 'pinia'
 import { toRaw } from 'vue'
+import {
+  createDefaultCanvasSettings,
+  MAX_CANVAS_CM,
+  MIN_CANVAS_CM,
+  PX_PER_CM,
+} from '@/constants/canvas'
 
 function uid() {
   return 'node_' + Math.random().toString(36).slice(2, 10)
@@ -8,6 +14,12 @@ function uid() {
 
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n))
+}
+
+function normalizeCm(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(MAX_CANVAS_CM, Math.max(MIN_CANVAS_CM, n))
 }
 
 const STORAGE_KEY = 'ballon_designer_autosave_v1'
@@ -19,24 +31,26 @@ export const useEditorStore = defineStore('editor', {
     // selección
     selectedId: null,
     selectedIds: [],
-        // grupos (lógico)
-    groups: [], // { id, name, childIds: [] }
     selectedGroupId: null,
-
 
     // vista
     view: { x: 0, y: 0, scale: 1 },
 
-   settings: {
-  grid: true,
-  snap: false,      // snap al grid
-  snapStep: 10,
+    ui: {
+      panMode: false,
+    },
 
-  snapGuides: true, // snap a guías (otros globos / canvas)
-  snapTolerance: 8, // px (en coords del canvas)
-  snapGuidePriority: 'center-first', // 'center-first' | 'edges-first'
-},
+    settings: {
+      grid: true,
+      snap: false, // snap al grid
+      snapStep: 10,
 
+      snapGuides: true, // snap a guías (otros globos / canvas)
+      snapTolerance: 8, // px (en coords del canvas)
+      snapGuidePriority: 'center-first', // 'center-first' | 'edges-first'
+    },
+
+    canvas: createDefaultCanvasSettings(),
 
     // runtime (no se serializa)
     stage: null,
@@ -44,13 +58,16 @@ export const useEditorStore = defineStore('editor', {
 
     // autosave
     autosave: {
-      enabled: false,
+      enabled: true,
       isRestoring: false,
       isDirty: false,
       lastSavedAt: null, // timestamp
       timerId: null,
       debounceMs: 600,
     },
+
+    // grupos
+    groups: [],
 
     // clipboard
     clipboard: {
@@ -59,16 +76,15 @@ export const useEditorStore = defineStore('editor', {
       bbox: null, // bbox del grupo copiado
     },
 
-   pasteSession: {
-  active: false,
-  count: 0,
-  baseX: null,
-  baseY: null,
-  startedAt: null,
-  lastPasteAt: null,
-  timeoutMs: 4000, // auto-cierra si no pegas en 4s
-},
-
+    pasteSession: {
+      active: false,
+      count: 0,
+      baseX: null,
+      baseY: null,
+      startedAt: null,
+      lastPasteAt: null,
+      timeoutMs: 4000, // auto-cierra si no pegas en 4s
+    },
 
     // history
     history: {
@@ -85,16 +101,16 @@ export const useEditorStore = defineStore('editor', {
 
   getters: {
     selectedNode(state) {
-      return state.nodes.find(n => n.id === state.selectedId) || null
+      return state.nodes.find((n) => n.id === state.selectedId) || null
     },
 
     selectedNodes(state) {
       const set = new Set(state.selectedIds || [])
-      return state.nodes.filter(n => set.has(n.id))
+      return state.nodes.filter((n) => set.has(n.id))
     },
 
     visibleNodes(state) {
-      return state.nodes.filter(n => n.visible !== false)
+      return state.nodes.filter((n) => n.visible !== false)
     },
 
     canRestore() {
@@ -106,7 +122,9 @@ export const useEditorStore = defineStore('editor', {
     },
 
     materialsSummary(state) {
-      const nodes = state.nodes.filter(n => n.visible !== false)
+      const nodes = state.nodes.filter(
+        (n) => n.visible !== false && n.kind !== 'text' && n.kind !== 'image',
+      )
       const total = nodes.length
 
       const byColorMap = new Map()
@@ -161,9 +179,17 @@ export const useEditorStore = defineStore('editor', {
     },
 
     // ===== Core =====
-    addNode({ x = 100, y = 100, color = '#ff3b30', typeId = 'round-11', meta = {} } = {}) {
+    addNode({
+      x = 100,
+      y = 100,
+      color = '#ff3b30',
+      typeId = 'round-11',
+      meta = {},
+      kind = 'balloon',
+    } = {}) {
       const node = {
         id: uid(),
+        kind,
         typeId,
         x: Number.isFinite(Number(x)) ? Number(x) : 100,
         y: Number.isFinite(Number(y)) ? Number(y) : 100,
@@ -175,7 +201,6 @@ export const useEditorStore = defineStore('editor', {
         locked: false,
         visible: true,
         zIndex: this.nodes.length,
-
         groupId: null,
 
         meta: {
@@ -192,39 +217,94 @@ export const useEditorStore = defineStore('editor', {
       return node.id
     },
 
+    addTextNode({ x = 160, y = 160, text = 'New text' } = {}) {
+      const node = {
+        id: uid(),
+        kind: 'text',
+        typeId: 'text',
+        x: Number.isFinite(Number(x)) ? Number(x) : 160,
+        y: Number.isFinite(Number(y)) ? Number(y) : 160,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        opacity: 1,
+        color: '#222222',
+        locked: false,
+        visible: true,
+        zIndex: this.nodes.length,
+        groupId: null,
+        meta: {
+          text: String(text || 'New text'),
+          fontFamily: 'Times New Roman',
+          fontSize: 24,
+          align: 'left',
+          fill: '#222222',
+        },
+      }
+
+      this.nodes.push(node)
+      this.select(node.id, { append: false })
+      this.markDirty()
+      return node.id
+    },
+
+    addImageNode({ x = 160, y = 160, src = '', width = 160, height = 120 } = {}) {
+      const node = {
+        id: uid(),
+        kind: 'image',
+        typeId: 'image',
+        x: Number.isFinite(Number(x)) ? Number(x) : 160,
+        y: Number.isFinite(Number(y)) ? Number(y) : 160,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        opacity: 1,
+        color: '#ffffff',
+        locked: false,
+        visible: true,
+        zIndex: this.nodes.length,
+        groupId: null,
+        meta: {
+          src: String(src || ''),
+          width: Number(width || 160),
+          height: Number(height || 120),
+        },
+      }
+
+      this.nodes.push(node)
+      this.select(node.id, { append: false })
+      this.markDirty()
+      return node.id
+    },
+
     updateNode(id, patch) {
-      const node = this.nodes.find(n => n.id === id)
+      const node = this.nodes.find((n) => n.id === id)
       if (!node) return
       Object.assign(node, patch || {})
       this.markDirty()
     },
 
     updateNodes(patchById = {}) {
-      if (!patchById || typeof patchById !== 'object') return
-
-      this.beginHistoryBatch()
-      try {
-        for (const [id, patch] of Object.entries(patchById)) {
-          const node = this.nodes.find(n => n.id === id)
-          if (!node) continue
-          Object.assign(node, patch || {})
-        }
-      } finally {
-        this.endHistoryBatch()
+      const map = patchById && typeof patchById === 'object' ? patchById : {}
+      let changed = false
+      for (const id of Object.keys(map)) {
+        const node = this.nodes.find((n) => n.id === id)
+        if (!node) continue
+        Object.assign(node, map[id] || {})
+        changed = true
       }
-
-      this.markDirty()
+      if (changed) this.markDirty()
     },
 
     setNodeType(id, { typeId, metaDefaults = null, replaceMeta = true } = {}) {
-      const node = this.nodes.find(n => n.id === id)
+      const node = this.nodes.find((n) => n.id === id)
       if (!node) return
 
       node.typeId = String(typeId || node.typeId || 'round-11')
 
       if (metaDefaults && typeof metaDefaults === 'object') {
         if (replaceMeta) node.meta = { ...metaDefaults }
-        else node.meta = { ...(node.meta || {}), ...metaDefaults }
+        else node.meta = { ...node.meta, ...metaDefaults }
       } else {
         node.meta = node.meta || {}
       }
@@ -233,16 +313,18 @@ export const useEditorStore = defineStore('editor', {
     },
 
     updateNodeMeta(id, metaPatch = {}) {
-      const node = this.nodes.find(n => n.id === id)
+      const node = this.nodes.find((n) => n.id === id)
       if (!node) return
-      node.meta = { ...(node.meta || {}), ...(metaPatch || {}) }
+      node.meta = { ...node.meta, ...metaPatch }
       this.markDirty()
     },
 
     // ===== Selección =====
     select(id, { append = false } = {}) {
-      const exists = this.nodes.some(n => n.id === id)
+      const exists = this.nodes.some((n) => n.id === id)
       if (!exists) return
+
+      this.selectedGroupId = null
 
       if (!append) {
         this.selectedId = id
@@ -257,8 +339,10 @@ export const useEditorStore = defineStore('editor', {
     },
 
     toggleSelect(id) {
-      const exists = this.nodes.some(n => n.id === id)
+      const exists = this.nodes.some((n) => n.id === id)
       if (!exists) return
+
+      this.selectedGroupId = null
 
       const set = new Set(this.selectedIds || [])
       if (set.has(id)) set.delete(id)
@@ -271,26 +355,141 @@ export const useEditorStore = defineStore('editor', {
 
     setSelection(ids = []) {
       const set = new Set(ids)
-      const valid = this.nodes.map(n => n.id).filter(id => set.has(id))
+      const valid = this.nodes.map((n) => n.id).filter((id) => set.has(id))
+      this.selectedGroupId = null
       this.selectedIds = valid
       this.selectedId = valid.length ? valid[valid.length - 1] : null
     },
 
-   clearSelection() {
-    this.selectedId = null
-    this.selectedIds = []
-    this.selectedGroupId = null
-    if (this.pasteSession?.active) this.endPasteSession()
-  },
+    clearSelection() {
+      this.selectedId = null
+      this.selectedIds = []
+      if (this.pasteSession?.active) this.endPasteSession()
+      this.selectedGroupId = null
+    },
 
+    selectGroup(groupId) {
+      const groups = Array.isArray(this.groups) ? this.groups : []
+      const group = groups.find((g) => String(g.id) === String(groupId))
+      if (!group || !Array.isArray(group.childIds) || !group.childIds.length) return
+
+      const nodeSet = new Set(this.nodes.map((n) => String(n.id)))
+      const validIds = group.childIds.map((id) => String(id)).filter((id) => nodeSet.has(id))
+
+      if (!validIds.length) return
+
+      this.selectedGroupId = group.id
+      this.selectedIds = validIds
+      this.selectedId = validIds[validIds.length - 1]
+    },
+
+    groupSelection({ name } = {}) {
+      const ids = Array.isArray(this.selectedIds) ? [...new Set(this.selectedIds)] : []
+      return this.createGroup({ name, childIds: ids })
+    },
+
+    createGroup({ name, childIds = [] } = {}) {
+      const nodesMap = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const ids = [...new Set((childIds || []).map((id) => String(id)))]
+      const nodes = ids.map((id) => nodesMap.get(id)).filter(Boolean)
+      if (nodes.length < 2) return null
+
+      const groupId = groupUid()
+      const orderName = name?.trim()
+      const label = orderName || `Grupo ${this.groups.length + 1}`
+
+      detachNodesFromGroups(this, ids)
+
+      this.groups = [
+        ...(this.groups || []),
+        { id: groupId, name: label, childIds: nodes.map((n) => n.id) },
+      ]
+      applyGroupMembership(this)
+      this.selectGroup(groupId)
+      this.markDirty()
+      return groupId
+    },
+
+    ungroup(groupId) {
+      const targetId = String(groupId || '')
+      if (!targetId) return
+
+      const existing = Array.isArray(this.groups) ? this.groups : []
+      const target = existing.find((g) => String(g.id) === targetId)
+      if (!target) return
+
+      const childIds = [...target.childIds]
+      this.groups = existing.filter((g) => String(g.id) !== targetId)
+      applyGroupMembership(this)
+      this.setSelection(childIds)
+      this.markDirty()
+    },
+
+    ungroupSelected() {
+      if (!this.selectedGroupId) return
+      this.ungroup(this.selectedGroupId)
+    },
+
+    reorderGroupChildIds(groupId, orderedIds = []) {
+      const gid = String(groupId || '')
+      if (!gid) return
+
+      const group = (this.groups || []).find((g) => String(g.id) === gid)
+      if (!group) return
+
+      const filtered = (Array.isArray(orderedIds) ? orderedIds : [])
+        .map((id) => String(id))
+        .filter((id) => group.childIds.includes(id))
+
+      if (!filtered.length) return
+
+      group.childIds = filtered
+
+      const childSet = new Set(group.childIds)
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const originalIndexes = this.nodes
+        .map((n, idx) => ({ id: String(n.id), idx }))
+        .filter((entry) => childSet.has(entry.id))
+        .map((entry) => entry.idx)
+
+      if (!originalIndexes.length) {
+        this.markDirty()
+        return
+      }
+
+      const minIndex = Math.min(...originalIndexes)
+      const remaining = this.nodes.filter((n) => !childSet.has(String(n.id)))
+      const before = remaining.slice(0, minIndex)
+      const after = remaining.slice(minIndex)
+      const orderedNodes = filtered.map((id) => nodeById.get(id)).filter(Boolean)
+
+      this.nodes = [...before, ...orderedNodes, ...after]
+      this.reindexZ()
+      this.markDirty()
+    },
+
+    toggleLockSelection() {
+      const ids = Array.isArray(this.selectedIds) ? [...this.selectedIds] : []
+      if (!ids.length) return
+
+      const nodes = ids.map((id) => this.nodes.find((n) => n.id === id)).filter(Boolean)
+      if (!nodes.length) return
+
+      const allLocked = nodes.every((n) => !!n.locked)
+      const target = !allLocked
+      for (const node of nodes) {
+        node.locked = target
+      }
+      this.markDirty()
+    },
 
     // ===== Delete =====
     deleteSelected() {
       const ids = new Set(this.selectedIds || [])
       if (!ids.size) return
-      this.nodes = this.nodes.filter(n => !ids.has(n.id))
+      this.nodes = this.nodes.filter((n) => !ids.has(n.id))
       this.clearSelection()
-      this._cleanupGroups?.()
+      applyGroupMembership(this)
       this.reindexZ()
       this.markDirty()
     },
@@ -303,15 +502,8 @@ export const useEditorStore = defineStore('editor', {
       for (const n of this.nodes) {
         if (n.visible === false) continue
 
-        const rx = Number(n?.meta?.radiusX ?? 46) * Math.abs(Number(n.scaleX ?? 1))
-        const ry = Number(n?.meta?.radiusY ?? 60) * Math.abs(Number(n.scaleY ?? 1))
-
-        const bx = Number(n.x ?? 0) - rx
-        const by = Number(n.y ?? 0) - ry
-        const bw = rx * 2
-        const bh = ry * 2
-
-        if (rectsIntersect(rect, { x: bx, y: by, width: bw, height: bh })) {
+        const box = nodeBoundingBox(n)
+        if (rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })) {
           hit.push(n.id)
         }
       }
@@ -324,7 +516,9 @@ export const useEditorStore = defineStore('editor', {
       const set = new Set(this.selectedIds || [])
       for (const id of hit) set.add(id)
       this.selectedIds = [...set]
-      this.selectedId = this.selectedIds.length ? this.selectedIds[this.selectedIds.length - 1] : null
+      this.selectedId = this.selectedIds.length
+        ? this.selectedIds[this.selectedIds.length - 1]
+        : null
     },
 
     // ===== Grid =====
@@ -335,145 +529,17 @@ export const useEditorStore = defineStore('editor', {
 
     // ===== Lock/Visible =====
     toggleLock(id) {
-      const node = this.nodes.find(n => n.id === id)
+      const node = this.nodes.find((n) => n.id === id)
       if (!node) return
       node.locked = !node.locked
       this.markDirty()
     },
 
     toggleVisible(id) {
-      const node = this.nodes.find(n => n.id === id)
+      const node = this.nodes.find((n) => n.id === id)
       if (!node) return
       node.visible = !(node.visible !== false)
       this.markDirty()
-    },
-
-    setLockedForSelection(locked) {
-      const ids = new Set(this.selectedIds || [])
-      if (!ids.size) return
-      const value = !!locked
-
-      this.beginHistoryBatch()
-      try {
-        for (const n of this.nodes) {
-          if (!ids.has(n.id)) continue
-          n.locked = value
-        }
-      } finally {
-        this.endHistoryBatch()
-      }
-
-      this.markDirty()
-    },
-
-    toggleLockSelection() {
-      const sel = this.selectedNodes
-      if (!sel.length) return
-      const anyUnlocked = sel.some(n => !n.locked)
-      this.setLockedForSelection(anyUnlocked)
-    },
-
-    setVisibleForSelection(visible) {
-      const ids = new Set(this.selectedIds || [])
-      if (!ids.size) return
-      const value = !!visible
-
-      this.beginHistoryBatch()
-      try {
-        for (const n of this.nodes) {
-          if (!ids.has(n.id)) continue
-          n.visible = value
-        }
-      } finally {
-        this.endHistoryBatch()
-      }
-
-      this.markDirty()
-    },
-
-    // ===== Grouping (lógico) =====
-    _groupUid() {
-      return 'group_' + Math.random().toString(36).slice(2, 10)
-    },
-
-    _cleanupGroups() {
-      const existing = new Set(this.nodes.map(n => n.id))
-      const groups = Array.isArray(this.groups) ? this.groups : []
-
-      for (const g of groups) {
-        g.childIds = (g.childIds || []).filter(id => existing.has(id))
-      }
-
-      this.groups = groups.filter(g => (g.childIds || []).length >= 2)
-
-      const groupIds = new Set(this.groups.map(g => g.id))
-      for (const n of this.nodes) {
-        if (n.groupId && !groupIds.has(n.groupId)) n.groupId = null
-      }
-
-      if (this.selectedGroupId && !groupIds.has(this.selectedGroupId)) this.selectedGroupId = null
-    },
-
-    groupSelection({ name = '' } = {}) {
-      const ids = (this.selectedIds || []).filter(Boolean)
-      const nodes = this.nodes.filter(n => ids.includes(n.id)).filter(n => !n.locked)
-      if (nodes.length < 2) return null
-
-      const groupId = this._groupUid()
-      const label = String(name || '').trim() || `Grupo ${this.groups.length + 1}`
-
-      this.beginHistoryBatch()
-      try {
-        for (const n of nodes) n.groupId = groupId
-        this.groups.push({ id: groupId, name: label, childIds: nodes.map(n => n.id) })
-        this.selectedGroupId = groupId
-      } finally {
-        this.endHistoryBatch()
-      }
-
-      this._cleanupGroups()
-      this.markDirty()
-      return groupId
-    },
-
-    ungroupSelection() {
-      const ids = new Set(this.selectedIds || [])
-      if (!ids.size) return false
-
-      const affected = new Set()
-      for (const n of this.nodes) {
-        if (!ids.has(n.id)) continue
-        if (n.groupId) affected.add(n.groupId)
-      }
-      if (!affected.size) return false
-
-      this.beginHistoryBatch()
-      try {
-        for (const n of this.nodes) {
-          if (!ids.has(n.id)) continue
-          n.groupId = null
-        }
-
-        for (const g of this.groups) {
-          if (!affected.has(g.id)) continue
-          g.childIds = (g.childIds || []).filter(id => !ids.has(id))
-        }
-      } finally {
-        this.endHistoryBatch()
-      }
-
-      this._cleanupGroups()
-      this.markDirty()
-      return true
-    },
-
-    selectGroup(groupId) {
-      const id = String(groupId || '').trim()
-      if (!id) return
-      const g = (this.groups || []).find(x => x.id === id)
-      if (!g) return
-      this.selectedGroupId = id
-      this.setSelection(g.childIds || [])
     },
 
     // ===== View =====
@@ -483,11 +549,54 @@ export const useEditorStore = defineStore('editor', {
         y: Number.isFinite(patch?.y) ? patch.y : this.view.y,
         scale: Number.isFinite(patch?.scale) ? clamp(patch.scale, 0.2, 4) : this.view.scale,
       }
-      this.markDirty()
     },
 
     resetView() {
       this.view = { x: 0, y: 0, scale: 1 }
+    },
+
+    setPanMode(value) {
+      this.ui.panMode = !!value
+    },
+
+    setCanvasDimensions({ widthCm, heightCm } = {}) {
+      const nextWidth = normalizeCm(widthCm, this.canvas.widthCm)
+      const nextHeight = normalizeCm(heightCm, this.canvas.heightCm)
+      if (nextWidth === this.canvas.widthCm && nextHeight === this.canvas.heightCm) return
+
+      this.canvas.widthCm = nextWidth
+      this.canvas.heightCm = nextHeight
+      this.markDirty()
+    },
+
+    setCanvasBackgroundColor(color) {
+      const next = String(color || '').trim()
+      if (!next) return
+      if (next === this.canvas.backgroundColor) return
+      this.canvas.backgroundColor = next
+      this.markDirty()
+    },
+
+    applyCanvasOffset({ xCm = 0, yCm = 0, relative = true } = {}) {
+      const dx = Number.isFinite(Number(xCm)) ? Number(xCm) : 0
+      const dy = Number.isFinite(Number(yCm)) ? Number(yCm) : 0
+      if (!dx && !dy) return
+
+      if (relative) {
+        this.canvas.offsetXcm = (Number(this.canvas.offsetXcm) || 0) + dx
+        this.canvas.offsetYcm = (Number(this.canvas.offsetYcm) || 0) + dy
+      } else {
+        this.canvas.offsetXcm = dx
+        this.canvas.offsetYcm = dy
+      }
+
+      this.view.x += dx * PX_PER_CM
+      this.view.y += dy * PX_PER_CM
+      this.markDirty()
+    },
+
+    setCanvasLockRatio(value = true) {
+      this.canvas.lockRatio = !!value
       this.markDirty()
     },
 
@@ -496,8 +605,76 @@ export const useEditorStore = defineStore('editor', {
       this.nodes.forEach((n, i) => (n.zIndex = i))
     },
 
+    bringToFrontSelected() {
+      const ids = Array.isArray(this.selectedIds) ? this.selectedIds : []
+      if (!ids.length) return
+      const set = new Set(ids)
+      const keep = []
+      const picked = []
+      for (const n of this.nodes) {
+        if (set.has(n.id)) picked.push(n)
+        else keep.push(n)
+      }
+      this.nodes = [...keep, ...picked]
+      this.reindexZ()
+      this.markDirty()
+    },
+
+    sendToBackSelected() {
+      const ids = Array.isArray(this.selectedIds) ? this.selectedIds : []
+      if (!ids.length) return
+      const set = new Set(ids)
+      const keep = []
+      const picked = []
+      for (const n of this.nodes) {
+        if (set.has(n.id)) picked.push(n)
+        else keep.push(n)
+      }
+      this.nodes = [...picked, ...keep]
+      this.reindexZ()
+      this.markDirty()
+    },
+
+    bringForwardSelected() {
+      const ids = Array.isArray(this.selectedIds) ? this.selectedIds : []
+      if (!ids.length) return
+      const set = new Set(ids)
+
+      // recorrer de atrás hacia delante para mover 1 paso al frente
+      for (let i = this.nodes.length - 2; i >= 0; i--) {
+        const a = this.nodes[i]
+        const b = this.nodes[i + 1]
+        if (set.has(a.id) && !set.has(b.id)) {
+          this.nodes[i] = b
+          this.nodes[i + 1] = a
+        }
+      }
+
+      this.reindexZ()
+      this.markDirty()
+    },
+
+    sendBackwardSelected() {
+      const ids = Array.isArray(this.selectedIds) ? this.selectedIds : []
+      if (!ids.length) return
+      const set = new Set(ids)
+
+      // recorrer hacia delante para mover 1 paso atrás
+      for (let i = 1; i < this.nodes.length; i++) {
+        const a = this.nodes[i - 1]
+        const b = this.nodes[i]
+        if (set.has(b.id) && !set.has(a.id)) {
+          this.nodes[i - 1] = b
+          this.nodes[i] = a
+        }
+      }
+
+      this.reindexZ()
+      this.markDirty()
+    },
+
     reorderByIds(orderedIds) {
-      const map = new Map(this.nodes.map(n => [n.id, n]))
+      const map = new Map(this.nodes.map((n) => [n.id, n]))
       const next = []
       for (const id of orderedIds) {
         const node = map.get(id)
@@ -509,42 +686,6 @@ export const useEditorStore = defineStore('editor', {
       this.reindexZ()
       this.markDirty()
     },
-
-    reorderGroupChildIds(groupId, orderedChildIdsFrontToBack) {
-  groupId = String(groupId)
-  const g = (this.groups || []).find(x => String(x.id) === groupId)
-  if (!g) return
-
-  // Guardar orden del grupo (útil para UI y persistencia)
-  g.childIds = (orderedChildIdsFrontToBack || []).map(String)
-
-  // Stack actual (front -> back)
-  const prevFront = [...this.nodes].reverse().map(n => String(n.id))
-
-  // Posición actual aproximada del bloque del grupo (según el primer hijo encontrado)
-  const indices = g.childIds
-    .map(id => prevFront.indexOf(String(id)))
-    .filter(i => i >= 0)
-
-  const insertPos = indices.length ? Math.min(...indices) : prevFront.length
-
-  // Quitamos del stack los hijos del grupo
-  const set = new Set(g.childIds.map(String))
-  const frontWithoutGroup = prevFront.filter(id => !set.has(String(id)))
-
-  // Insertamos el grupo en la misma zona, pero con el nuevo orden
-  const nextFront = [
-    ...frontWithoutGroup.slice(0, insertPos),
-    ...g.childIds.map(String),
-    ...frontWithoutGroup.slice(insertPos),
-  ]
-
-  // reorderByIds espera back -> front
-  this.reorderByIds([...nextFront].reverse())
-
-  this.markDirty()
-},
-
 
     // ===== Export PNG =====
     exportPng({ pixelRatio = 2, cropToContent = false, fileName = 'diseno.png' } = {}) {
@@ -601,7 +742,7 @@ export const useEditorStore = defineStore('editor', {
       const stage = this.stage
       if (!stage) return null
 
-      const groups = stage.find('Group').filter(g => {
+      const groups = stage.find('Group').filter((g) => {
         const id = g.id?.()
         return typeof id === 'string' && id.startsWith('node_') && g.visible()
       })
@@ -691,8 +832,9 @@ export const useEditorStore = defineStore('editor', {
       return {
         version: 1,
         savedAt: Date.now(),
-        nodes: this.nodes.map(n => ({
+        nodes: this.nodes.map((n) => ({
           id: n.id,
+          kind: n.kind || 'balloon',
           x: n.x,
           y: n.y,
           rotation: n.rotation,
@@ -704,16 +846,24 @@ export const useEditorStore = defineStore('editor', {
           visible: n.visible !== false,
           zIndex: n.zIndex ?? 0,
           typeId: n.typeId || 'round-11',
+          groupId: typeof n.groupId === 'string' ? n.groupId : null,
           meta: n.meta || {},
-          groupId: n.groupId || null,
         })),
-        groups: (this.groups || []).map(g => ({
-          id: String(g.id),
-          name: String(g.name || ''),
-          childIds: Array.isArray(g.childIds) ? g.childIds.map(String) : [],
+        groups: (this.groups || []).map((g) => ({
+          id: g.id,
+          name: g.name,
+          childIds: Array.isArray(g.childIds) ? g.childIds : [],
         })),
         view: { ...this.view },
         settings: { ...this.settings },
+        canvas: {
+          widthCm: Number(this.canvas.widthCm || 0),
+          heightCm: Number(this.canvas.heightCm || 0),
+          offsetXcm: Number(this.canvas.offsetXcm || 0),
+          offsetYcm: Number(this.canvas.offsetYcm || 0),
+          lockRatio: !!this.canvas.lockRatio,
+          backgroundColor: this.canvas.backgroundColor || '#ffffff',
+        },
       }
     },
 
@@ -738,8 +888,9 @@ export const useEditorStore = defineStore('editor', {
 
       this.autosave.isRestoring = true
 
-      this.nodes = data.nodes.map(n => ({
+      this.nodes = data.nodes.map((n) => ({
         id: String(n.id || uid()),
+        kind: n.kind === 'text' ? 'text' : n.kind === 'image' ? 'image' : 'balloon',
         x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
         y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
         rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
@@ -751,17 +902,35 @@ export const useEditorStore = defineStore('editor', {
         visible: n.visible !== false,
         zIndex: Number.isFinite(Number(n.zIndex)) ? Number(n.zIndex) : 0,
         typeId: String(n.typeId || 'round-11'),
+        groupId: typeof n.groupId === 'string' ? n.groupId : null,
         meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
-        groupId: n.groupId ? String(n.groupId) : null,
       }))
 
-      this.groups = Array.isArray(data.groups)
-        ? data.groups.map(g => ({
-            id: String(g.id || this._groupUid()),
-            name: String(g.name || ''),
-            childIds: Array.isArray(g.childIds) ? g.childIds.map(String) : [],
-          }))
-        : []
+      this.groups = (Array.isArray(data.groups) ? data.groups : [])
+        .map((g) => ({
+          id: String(g?.id || groupUid()),
+          name: typeof g?.name === 'string' ? g.name : 'Grupo',
+          childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+        }))
+        .filter((g) => g.childIds.length)
+      applyGroupMembership(this)
+      const defaults = createDefaultCanvasSettings()
+      const canvasPayload = data.canvas || {}
+      this.canvas = {
+        widthCm: normalizeCm(canvasPayload.widthCm, defaults.widthCm),
+        heightCm: normalizeCm(canvasPayload.heightCm, defaults.heightCm),
+        offsetXcm: Number.isFinite(Number(canvasPayload.offsetXcm))
+          ? Number(canvasPayload.offsetXcm)
+          : defaults.offsetXcm,
+        offsetYcm: Number.isFinite(Number(canvasPayload.offsetYcm))
+          ? Number(canvasPayload.offsetYcm)
+          : defaults.offsetYcm,
+        lockRatio:
+          typeof canvasPayload.lockRatio === 'boolean'
+            ? canvasPayload.lockRatio
+            : defaults.lockRatio,
+        backgroundColor: canvasPayload.backgroundColor || defaults.backgroundColor,
+      }
 
       this.nodes.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
       this.reindexZ()
@@ -781,7 +950,6 @@ export const useEditorStore = defineStore('editor', {
       }
 
       this.clearSelection()
-      this._cleanupGroups()
       this.autosave.isDirty = false
       this.autosave.lastSavedAt = Number(data.savedAt || Date.now())
 
@@ -807,9 +975,11 @@ export const useEditorStore = defineStore('editor', {
       if (!ok) return
 
       this.nodes = []
+      this.groups = []
       this.clearSelection()
       this.view = { x: 0, y: 0, scale: 1 }
       this.settings = { ...this.settings, grid: true, snap: false, snapStep: 10 }
+      this.canvas = createDefaultCanvasSettings()
 
       this.clearSavedDesign()
       this.autosave.isDirty = false
@@ -842,8 +1012,9 @@ export const useEditorStore = defineStore('editor', {
 
       this.autosave.isRestoring = true
 
-      this.nodes = data.nodes.map(n => ({
+      this.nodes = data.nodes.map((n) => ({
         id: String(n.id || uid()),
+        kind: n.kind === 'text' ? 'text' : n.kind === 'image' ? 'image' : 'balloon',
         x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
         y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
         rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
@@ -855,17 +1026,27 @@ export const useEditorStore = defineStore('editor', {
         visible: n.visible !== false,
         zIndex: Number.isFinite(Number(n.zIndex)) ? Number(n.zIndex) : 0,
         typeId: String(n.typeId || 'round-11'),
+        groupId: typeof n.groupId === 'string' ? n.groupId : null,
         meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
-        groupId: n.groupId ? String(n.groupId) : null,
       }))
 
-      this.groups = Array.isArray(data.groups)
-        ? data.groups.map(g => ({
-            id: String(g.id || this._groupUid()),
-            name: String(g.name || ''),
-            childIds: Array.isArray(g.childIds) ? g.childIds.map(String) : [],
-          }))
-        : []
+      const defaults = createDefaultCanvasSettings()
+      const canvasPayload = data.canvas || {}
+      this.canvas = {
+        widthCm: normalizeCm(canvasPayload.widthCm, defaults.widthCm),
+        heightCm: normalizeCm(canvasPayload.heightCm, defaults.heightCm),
+        offsetXcm: Number.isFinite(Number(canvasPayload.offsetXcm))
+          ? Number(canvasPayload.offsetXcm)
+          : defaults.offsetXcm,
+        offsetYcm: Number.isFinite(Number(canvasPayload.offsetYcm))
+          ? Number(canvasPayload.offsetYcm)
+          : defaults.offsetYcm,
+        lockRatio:
+          typeof canvasPayload.lockRatio === 'boolean'
+            ? canvasPayload.lockRatio
+            : defaults.lockRatio,
+        backgroundColor: canvasPayload.backgroundColor || defaults.backgroundColor,
+      }
 
       this.nodes.sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
       this.reindexZ()
@@ -887,7 +1068,6 @@ export const useEditorStore = defineStore('editor', {
       }
 
       this.clearSelection()
-      this._cleanupGroups()
       this.autosave.isDirty = false
       this.autosave.lastSavedAt = Date.now()
       this.autosave.isRestoring = false
@@ -906,13 +1086,14 @@ export const useEditorStore = defineStore('editor', {
     // ===== Materiales =====
     computeMaterials({ includeHidden = false, includeLocked = true, catalogTypes = [] } = {}) {
       const types = Array.isArray(catalogTypes) ? catalogTypes : []
-      const typeMap = new Map(types.map(t => [t.id, t]))
+      const typeMap = new Map(types.map((t) => [t.id, t]))
 
-      const nodes = this.nodes.filter(n => {
+      const nodes = this.nodes.filter((n) => {
         const isHidden = n.visible === false
         const isLocked = !!n.locked
         if (!includeHidden && isHidden) return false
         if (!includeLocked && isLocked) return false
+        if (n.kind === 'text' || n.kind === 'image') return false
         return true
       })
 
@@ -978,7 +1159,7 @@ export const useEditorStore = defineStore('editor', {
 
       byTypeColor.sort((a, b) => b.qty - a.qty)
 
-      const hasCosts = byType.some(x => x.unitCost > 0)
+      const hasCosts = byType.some((x) => x.unitCost > 0)
 
       return {
         filters: { includeHidden, includeLocked },
@@ -1003,7 +1184,7 @@ export const useEditorStore = defineStore('editor', {
         version: 2,
         createdAt: Date.now(),
         summary,
-        nodes: this.nodes.map(n => ({
+        nodes: this.nodes.map((n) => ({
           id: n.id,
           typeId: n.typeId || 'round-11',
           color: n.color || '#000000',
@@ -1026,25 +1207,20 @@ export const useEditorStore = defineStore('editor', {
         maxY = -Infinity
 
       for (const n of nodes) {
-        const rx = Number(n?.meta?.radiusX ?? 46) * Math.abs(Number(n.scaleX ?? 1))
-        const ry = Number(n?.meta?.radiusY ?? 60) * Math.abs(Number(n.scaleY ?? 1))
-        const left = Number(n.x ?? 0) - rx
-        const top = Number(n.y ?? 0) - ry
-        const right = Number(n.x ?? 0) + rx
-        const bottom = Number(n.y ?? 0) + ry
-
-        minX = Math.min(minX, left)
-        minY = Math.min(minY, top)
-        maxX = Math.max(maxX, right)
-        maxY = Math.max(maxY, bottom)
+        const box = nodeBoundingBox(n)
+        minX = Math.min(minX, box.left)
+        minY = Math.min(minY, box.top)
+        maxX = Math.max(maxX, box.right)
+        maxY = Math.max(maxY, box.bottom)
       }
 
       const bbox = { x: minX, y: minY, width: maxX - minX, height: maxY - minY }
 
-      this.clipboard.nodes = nodes.map(n => ({
+      this.clipboard.nodes = nodes.map((n) => ({
         dx: Number(n.x ?? 0) - bbox.x,
         dy: Number(n.y ?? 0) - bbox.y,
 
+        kind: n.kind || 'balloon',
         typeId: n.typeId || 'round-11',
         color: n.color || '#000000',
         rotation: Number(n.rotation || 0),
@@ -1062,142 +1238,92 @@ export const useEditorStore = defineStore('editor', {
       return true
     },
 
-pasteFromClipboard({ x = null, y = null, offset = 18, multi = false } = {}) {
-  const clips = Array.isArray(this.clipboard?.nodes) ? this.clipboard.nodes : null
-  if (!clips || !clips.length) return null
+    pasteFromClipboard({ x = null, y = null, offset = 18, multi = false } = {}) {
+      const clips = Array.isArray(this.clipboard?.nodes) ? this.clipboard.nodes : null
+      if (!clips || !clips.length) return null
 
-  const now = Date.now()
+      const now = Date.now()
 
-  // iniciar sesión multi
-  if (multi) {
-    if (!this.pasteSession.active) {
-      this.pasteSession.active = true
-      this.pasteSession.count = 0
-      this.pasteSession.baseX = Number.isFinite(x) ? x : 200
-      this.pasteSession.baseY = Number.isFinite(y) ? y : 200
-      this.pasteSession.startedAt = now
-      this.pasteSession.lastPasteAt = now
-    } else {
-      // si ya estaba activa, actualizamos lastPasteAt (no movemos base)
-      this.pasteSession.lastPasteAt = now
-    }
-  } else {
-    // paste normal: no usa sesión
-    this.pasteSession.lastPasteAt = now
-  }
-
-  const session = this.pasteSession
-  const baseX = multi ? session.baseX : (Number.isFinite(x) ? x : 200)
-  const baseY = multi ? session.baseY : (Number.isFinite(y) ? y : 200)
-
-  const i = multi ? session.count : 1
-  const ox = offset * i
-  const oy = offset * i
-
-  this.beginHistoryBatch()
-  try {
-    const newIds = []
-
-    for (const c of clips) {
-      const newId = this.addNode({
-        x: baseX + c.dx + ox,
-        y: baseY + c.dy + oy,
-        color: c.color,
-        typeId: c.typeId,
-        meta: { ...(c.meta || {}) },
-      })
-
-      if (newId) {
-        this.updateNode(newId, {
-          rotation: c.rotation,
-          scaleX: c.scaleX,
-          scaleY: c.scaleY,
-          opacity: c.opacity,
-          locked: c.locked,
-          visible: c.visible,
-        })
-        newIds.push(newId)
+      // iniciar sesión multi
+      if (multi) {
+        if (!this.pasteSession.active) {
+          this.pasteSession.active = true
+          this.pasteSession.count = 0
+          this.pasteSession.baseX = Number.isFinite(x) ? x : 200
+          this.pasteSession.baseY = Number.isFinite(y) ? y : 200
+          this.pasteSession.startedAt = now
+          this.pasteSession.lastPasteAt = now
+        } else {
+          // si ya estaba activa, actualizamos lastPasteAt (no movemos base)
+          this.pasteSession.lastPasteAt = now
+        }
+      } else {
+        // paste normal: no usa sesión
+        this.pasteSession.lastPasteAt = now
       }
-    }
 
-    this.setSelection(newIds)
+      const session = this.pasteSession
+      const baseX = multi ? session.baseX : Number.isFinite(x) ? x : 200
+      const baseY = multi ? session.baseY : Number.isFinite(y) ? y : 200
 
-    if (multi) session.count += 1
-    return newIds.length ? newIds[0] : null
-  } finally {
-    this.endHistoryBatch()
-  }
-},
-
-
-endPasteSession() {
-  this.pasteSession.active = false
-  this.pasteSession.count = 0
-  this.pasteSession.baseX = null
-  this.pasteSession.baseY = null
-  this.pasteSession.startedAt = null
-  this.pasteSession.lastPasteAt = null
-},
-
-tickPasteSession() {
-  if (!this.pasteSession?.active) return false
-  const last = Number(this.pasteSession.lastPasteAt || 0)
-  const timeoutMs = Number(this.pasteSession.timeoutMs || 0)
-
-  if (!timeoutMs || timeoutMs <= 0) return false
-  if (!last) return false
-
-  const expired = (Date.now() - last) > timeoutMs
-  if (expired) {
-    this.endPasteSession()
-    return true
-  }
-  return false
-},
-
-
-
-    duplicateSelected({ offset = 18 } = {}) {
-      if (!this.selectedIds?.length) return null
-      const ok = this.copySelected()
-      if (!ok) return null
-      return this.pasteFromClipboard({ offset, multi: false })
-    },
-
-    duplicateSelectedMany({ count = 3, stepX = 18, stepY = 18, inPlace = false } = {}) {
-      const n = Number(count)
-      const times = Number.isFinite(n) ? Math.max(1, Math.min(200, Math.floor(n))) : 3
-
-      const ok = this.copySelected()
-      if (!ok) return []
-
-      const clips = Array.isArray(this.clipboard?.nodes) ? this.clipboard.nodes : []
-      const bbox = this.clipboard?.bbox || null
-      if (!clips.length || !bbox) return []
-
-      const createdAll = []
-
-      // base: esquina superior izquierda del grupo original
-      const baseX = Number.isFinite(Number(bbox.x)) ? Number(bbox.x) : 200
-      const baseY = Number.isFinite(Number(bbox.y)) ? Number(bbox.y) : 200
+      const i = multi ? session.count : 1
+      const ox = offset * i
+      const oy = offset * i
 
       this.beginHistoryBatch()
       try {
-        for (let i = 0; i < times; i++) {
-          const k = i + 1
-          const ox = inPlace ? 0 : Number(stepX || 0) * k
-          const oy = inPlace ? 0 : Number(stepY || 0) * k
+        const newIds = []
 
-          const newIds = []
-          for (const c of clips) {
-            const newId = this.addNode({
-              x: baseX + Number(c.dx || 0) + ox,
-              y: baseY + Number(c.dy || 0) + oy,
+        for (const c of clips) {
+          const px = baseX + c.dx + ox
+          const py = baseY + c.dy + oy
+          let newId = null
+
+          if (c.kind === 'text') {
+            newId = this.addTextNode({ x: px, y: py, text: c.meta?.text || 'New text' })
+            if (newId) {
+              this.updateNode(newId, {
+                typeId: c.typeId || 'text',
+                color: c.color,
+                rotation: c.rotation,
+                scaleX: c.scaleX,
+                scaleY: c.scaleY,
+                opacity: c.opacity,
+                locked: c.locked,
+                visible: c.visible,
+              })
+              this.updateNodeMeta(newId, { ...c.meta })
+            }
+          } else if (c.kind === 'image') {
+            newId = this.addImageNode({
+              x: px,
+              y: py,
+              src: c.meta?.src || '',
+              width: c.meta?.width,
+              height: c.meta?.height,
+            })
+            if (newId) {
+              this.updateNode(newId, {
+                typeId: c.typeId || 'image',
+                color: c.color,
+                rotation: c.rotation,
+                scaleX: c.scaleX,
+                scaleY: c.scaleY,
+                opacity: c.opacity,
+                locked: c.locked,
+                visible: c.visible,
+              })
+              this.updateNodeMeta(newId, { ...c.meta })
+            }
+          } else {
+            newId = this.addNode({
+              x: px,
+              y: py,
               color: c.color,
               typeId: c.typeId,
-              meta: { ...(c.meta || {}) },
+              meta: { ...c.meta },
+              kind: c.kind || 'balloon',
             })
-
             if (newId) {
               this.updateNode(newId, {
                 rotation: c.rotation,
@@ -1207,49 +1333,79 @@ tickPasteSession() {
                 locked: c.locked,
                 visible: c.visible,
               })
-              newIds.push(newId)
             }
           }
 
-          if (newIds.length) {
-            createdAll.push(...newIds)
-            this.setSelection(newIds)
-          }
+          if (newId) newIds.push(newId)
         }
+
+        this.setSelection(newIds)
+
+        if (multi) session.count += 1
+        return newIds.length ? newIds[0] : null
       } finally {
         this.endHistoryBatch()
       }
+    },
 
-      return createdAll
+    endPasteSession() {
+      this.pasteSession.active = false
+      this.pasteSession.count = 0
+      this.pasteSession.baseX = null
+      this.pasteSession.baseY = null
+      this.pasteSession.startedAt = null
+      this.pasteSession.lastPasteAt = null
+    },
+
+    tickPasteSession() {
+      if (!this.pasteSession?.active) return false
+      const last = Number(this.pasteSession.lastPasteAt || 0)
+      const timeoutMs = Number(this.pasteSession.timeoutMs || 0)
+
+      if (!timeoutMs || timeoutMs <= 0) return false
+      if (!last) return false
+
+      const expired = Date.now() - last > timeoutMs
+      if (expired) {
+        this.endPasteSession()
+        return true
+      }
+      return false
+    },
+
+    duplicateSelected({ offset = 18 } = {}) {
+      if (!this.selectedIds?.length) return null
+      const ok = this.copySelected()
+      if (!ok) return null
+      return this.pasteFromClipboard({ offset, multi: false })
     },
 
     // ===== Align / Distribute =====
     alignSelection(mode) {
-      const nodes = this.selectedNodes.filter(n => !n.locked)
+      const nodes = this.selectedNodes.filter((n) => !n.locked)
       if (nodes.length < 2) return
 
       this.beginHistoryBatch()
       try {
-        const boxes = nodes.map(n => {
-          const rx = Number(n?.meta?.radiusX ?? 46) * Math.abs(Number(n.scaleX ?? 1))
-          const ry = Number(n?.meta?.radiusY ?? 60) * Math.abs(Number(n.scaleY ?? 1))
+        const boxes = nodes.map((n) => {
+          const box = nodeBoundingBox(n)
           return {
             id: n.id,
-            left: n.x - rx,
-            right: n.x + rx,
-            top: n.y - ry,
-            bottom: n.y + ry,
-            width: rx * 2,
-            height: ry * 2,
-            cx: n.x,
-            cy: n.y,
+            left: box.left,
+            right: box.right,
+            top: box.top,
+            bottom: box.bottom,
+            width: box.width,
+            height: box.height,
+            cx: box.centerX,
+            cy: box.centerY,
           }
         })
 
-        const minLeft = Math.min(...boxes.map(b => b.left))
-        const maxRight = Math.max(...boxes.map(b => b.right))
-        const minTop = Math.min(...boxes.map(b => b.top))
-        const maxBottom = Math.max(...boxes.map(b => b.bottom))
+        const minLeft = Math.min(...boxes.map((b) => b.left))
+        const maxRight = Math.max(...boxes.map((b) => b.right))
+        const minTop = Math.min(...boxes.map((b) => b.top))
+        const maxBottom = Math.max(...boxes.map((b) => b.bottom))
 
         const centerX = (minLeft + maxRight) / 2
         const centerY = (minTop + maxBottom) / 2
@@ -1275,7 +1431,7 @@ tickPasteSession() {
 
     distributeSelection(axis) {
       const nodes = this.selectedNodes
-        .filter(n => !n.locked)
+        .filter((n) => !n.locked)
         .sort((a, b) => (axis === 'x' ? a.x - b.x : a.y - b.y))
 
       if (nodes.length < 3) return
@@ -1313,6 +1469,8 @@ tickPasteSession() {
         nodes: deepClone(toRaw(this.nodes)),
         view: deepClone(toRaw(this.view)),
         settings: deepClone(toRaw(this.settings)),
+        groups: deepClone(toRaw(this.groups)),
+        canvas: deepClone(toRaw(this.canvas)),
       }
     },
 
@@ -1323,6 +1481,9 @@ tickPasteSession() {
         this.nodes = deepClone(snap.nodes || [])
         this.view = deepClone(snap.view || { x: 0, y: 0, scale: 1 })
         this.settings = deepClone(snap.settings || this.settings)
+        this.groups = deepClone(snap.groups || [])
+        applyGroupMembership(this)
+        this.canvas = deepClone(snap.canvas || createDefaultCanvasSettings())
         this.clearSelection()
       } finally {
         this.history.lock = false
@@ -1413,41 +1574,6 @@ tickPasteSession() {
 
       return true
     },
-
-    reorderGroupChildIds(groupId, orderedChildIdsFrontToBack) {
-  groupId = String(groupId)
-  const g = (this.groups || []).find(x => String(x.id) === groupId)
-  if (!g) return
-
-  // Guardar el orden en el grupo (opcional pero útil para UI)
-  g.childIds = orderedChildIdsFrontToBack.map(String)
-
-  // Ahora reflejarlo en el stack real:
-  // - Convertimos el stack actual a front->back
-  const front = [...this.nodes].reverse().map(n => String(n.id))
-
-  // Quitamos los ids del grupo
-  const set = new Set(g.childIds)
-  const frontWithoutGroup = front.filter(id => !set.has(id))
-
-  // Insertamos el grupo en su "posición actual" aproximada:
-  // buscamos la posición donde estaba el primer hijo antes del cambio
-  const prevFront = [...this.nodes].reverse().map(n => String(n.id))
-  const prevIndices = g.childIds.map(id => prevFront.indexOf(String(id))).filter(i => i >= 0)
-  const insertPos = prevIndices.length ? Math.min(...prevIndices) : frontWithoutGroup.length
-
-  const nextFront = [
-    ...frontWithoutGroup.slice(0, insertPos),
-    ...orderedChildIdsFrontToBack.map(String),
-    ...frontWithoutGroup.slice(insertPos),
-  ]
-
-  // store.reorderByIds espera back->front
-  this.reorderByIds([...nextFront].reverse())
-
-  this.markDirty()
-}
-
   },
 })
 
@@ -1496,131 +1622,108 @@ function deepClone(obj) {
   return JSON.parse(JSON.stringify(raw))
 }
 
-function featureWeightX(featureKey) {
-  const mode = String(store.settings?.snapGuidePriority || 'center-first')
-  // pesos más bajos = mejor (más prioritario)
-  if (mode === 'edges-first') {
-    if (featureKey === 'left' || featureKey === 'right') return 0
-    if (featureKey === 'center') return 1
-    return 2
-  }
-  // center-first (default)
-  if (featureKey === 'center') return 0
-  if (featureKey === 'left' || featureKey === 'right') return 1
-  return 2
-}
-
-function featureWeightY(featureKey) {
-  const mode = String(store.settings?.snapGuidePriority || 'center-first')
-  if (mode === 'edges-first') {
-    if (featureKey === 'top' || featureKey === 'bottom') return 0
-    if (featureKey === 'center') return 1
-    return 2
-  }
-  if (featureKey === 'center') return 0
-  if (featureKey === 'top' || featureKey === 'bottom') return 1
-  return 2
-}
-
-
-
-function snapBoxToGuides(box, candidates) {
-  if (!store.settings?.snapGuides) return { dx: 0, dy: 0, gx: null, gy: null }
-
-  const tol = getTolerance()
-
-  // features del box que pueden “pegarse”
-  const fx = [
-    { value: box.left, key: 'left' },
-    { value: box.centerX, key: 'center' },
-    { value: box.right, key: 'right' },
-  ]
-  const fy = [
-    { value: box.top, key: 'top' },
-    { value: box.centerY, key: 'center' },
-    { value: box.bottom, key: 'bottom' },
-  ]
-
-  // scoring:
-  // 1) prioridad por tipo (center-first / edges-first)
-  // 2) distancia absoluta (más cerca gana)
-  // 3) desempate: preferir guías de node vs canvas (opcional, aquí le damos leve preferencia a node)
-  function guideSourceWeight(type) {
-    // type empieza con 'node-' o 'canvas-'
-    const t = String(type || '')
-    if (t.startsWith('node-')) return 0
-    if (t.startsWith('canvas-')) return 1
-    return 2
-  }
-
-  let bestX = null // { featureKey, ad, diff, guide, p, srcW }
-  for (const f of fx) {
-    const p = featureWeightX(f.key)
-    for (const g of candidates.xs) {
-      const diff = g.value - f.value
-      const ad = Math.abs(diff)
-      if (ad > tol) continue
-
-      const srcW = guideSourceWeight(g.type)
-
-      const cand = { featureKey: f.key, p, ad, diff, guide: g, srcW }
-
-      if (!bestX) {
-        bestX = cand
-        continue
-      }
-
-      // orden: prioridad feature -> distancia -> fuente (node primero)
-      if (cand.p < bestX.p) {
-        bestX = cand
-        continue
-      }
-      if (cand.p === bestX.p && cand.ad < bestX.ad) {
-        bestX = cand
-        continue
-      }
-      if (cand.p === bestX.p && cand.ad === bestX.ad && cand.srcW < bestX.srcW) {
-        bestX = cand
-        continue
-      }
+function nodeHalfSize(n) {
+  if (n?.kind === 'image') {
+    const width = Number(n?.meta?.width || 160)
+    const height = Number(n?.meta?.height || 120)
+    const rx = (Number.isFinite(width) ? width : 160) / 2
+    const ry = (Number.isFinite(height) ? height : 120) / 2
+    return {
+      rx: rx * Math.abs(Number(n?.scaleX ?? 1)),
+      ry: ry * Math.abs(Number(n?.scaleY ?? 1)),
     }
   }
 
-  let bestY = null
-  for (const f of fy) {
-    const p = featureWeightY(f.key)
-    for (const g of candidates.ys) {
-      const diff = g.value - f.value
-      const ad = Math.abs(diff)
-      if (ad > tol) continue
-
-      const srcW = guideSourceWeight(g.type)
-      const cand = { featureKey: f.key, p, ad, diff, guide: g, srcW }
-
-      if (!bestY) {
-        bestY = cand
-        continue
-      }
-
-      if (cand.p < bestY.p) {
-        bestY = cand
-        continue
-      }
-      if (cand.p === bestY.p && cand.ad < bestY.ad) {
-        bestY = cand
-        continue
-      }
-      if (cand.p === bestY.p && cand.ad === bestY.ad && cand.srcW < bestY.srcW) {
-        bestY = cand
-        continue
-      }
+  if (n?.kind === 'text') {
+    const fontSize = Number(n?.meta?.fontSize || 24)
+    const width = Number(n?.meta?.width || 220)
+    const safeFont = Number.isFinite(fontSize) ? fontSize : 24
+    const safeWidth = Number.isFinite(width) ? width : 220
+    const height = safeFont * 1.2
+    return {
+      rx: (safeWidth / 2) * Math.abs(Number(n?.scaleX ?? 1)),
+      ry: (height / 2) * Math.abs(Number(n?.scaleY ?? 1)),
     }
   }
 
+  const rx = Number(n?.meta?.radiusX ?? 46)
+  const ry = Number(n?.meta?.radiusY ?? 60)
   return {
-    dx: bestX ? bestX.diff : 0,
-    dy: bestY ? bestY.diff : 0,
-    gx: bestX ? bestX.guide : null,
-    gy: bestY ? bestY.guide : null,
+    rx: (Number.isFinite(rx) ? rx : 46) * Math.abs(Number(n?.scaleX ?? 1)),
+    ry: (Number.isFinite(ry) ? ry : 60) * Math.abs(Number(n?.scaleY ?? 1)),
+  }
+}
+
+function nodeBoundingBox(n) {
+  const { rx, ry } = nodeHalfSize(n)
+  const cx = Number(n?.x ?? 0)
+  const cy = Number(n?.y ?? 0)
+  return {
+    x: cx - rx,
+    y: cy - ry,
+    width: rx * 2,
+    height: ry * 2,
+    left: cx - rx,
+    right: cx + rx,
+    top: cy - ry,
+    bottom: cy + ry,
+    centerX: cx,
+    centerY: cy,
+  }
+}
+
+function groupUid() {
+  return 'group_' + Math.random().toString(36).slice(2, 10)
+}
+
+function detachNodesFromGroups(store, ids = []) {
+  const set = new Set((Array.isArray(ids) ? ids : []).map((id) => String(id)))
+  if (!set.size) return
+
+  const nextGroups = []
+  for (const group of Array.isArray(store.groups) ? store.groups : []) {
+    const filtered = (Array.isArray(group.childIds) ? group.childIds : []).filter(
+      (id) => !set.has(String(id)),
+    )
+    if (filtered.length) {
+      nextGroups.push({ ...group, childIds: filtered })
+    }
+  }
+
+  store.groups = nextGroups
+  for (const node of store.nodes) {
+    if (set.has(String(node.id))) delete node.groupId
+  }
+}
+
+function applyGroupMembership(store) {
+  const nodes = Array.isArray(store.nodes) ? store.nodes : []
+  const nodeIds = new Set(nodes.map((n) => String(n.id)))
+
+  const nextGroups = []
+  for (const group of Array.isArray(store.groups) ? store.groups : []) {
+    if (!Array.isArray(group.childIds)) continue
+    const childIds = group.childIds.map((id) => String(id)).filter((id) => nodeIds.has(id))
+    if (childIds.length) nextGroups.push({ ...group, childIds })
+  }
+
+  store.groups = nextGroups
+
+  const nodeGroupMap = new Map()
+  for (const group of nextGroups) {
+    for (const id of group.childIds) {
+      nodeGroupMap.set(String(id), group.id)
+    }
+  }
+
+  for (const node of nodes) {
+    const gid = nodeGroupMap.get(String(node.id))
+    if (gid) node.groupId = gid
+    else delete node.groupId
+  }
+
+  const validGroupIds = new Set(nextGroups.map((g) => g.id))
+  if (store.selectedGroupId && !validGroupIds.has(String(store.selectedGroupId))) {
+    store.selectedGroupId = null
   }
 }

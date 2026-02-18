@@ -2,7 +2,11 @@
   <div class="d-flex gap-2 align-items-center w-100">
     <!-- Archivo -->
     <div class="btn-group btn-group-sm" role="group">
-      <button class="btn btn-outline-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown">
+      <button
+        class="btn btn-outline-secondary dropdown-toggle"
+        type="button"
+        data-bs-toggle="dropdown"
+      >
         <i class="bi bi-folder2-open me-1"></i> Archivo
       </button>
 
@@ -14,7 +18,12 @@
         </li>
 
         <li>
-          <button class="dropdown-item" type="button" @click="store.restoreDesignPrompt()" :disabled="!store.canRestore">
+          <button
+            class="dropdown-item"
+            type="button"
+            @click="store.restoreDesignPrompt()"
+            :disabled="!store.canRestore"
+          >
             Restaurar autosave
           </button>
         </li>
@@ -30,15 +39,11 @@
         <li><hr class="dropdown-divider" /></li>
 
         <li>
-          <button class="dropdown-item" type="button" @click="openExportPng">
-            Exportar PNG
-          </button>
+          <button class="dropdown-item" type="button" @click="openExportPng">Exportar PNG</button>
         </li>
 
         <li>
-          <button class="dropdown-item" type="button" @click="exportJson">
-            Exportar JSON
-          </button>
+          <button class="dropdown-item" type="button" @click="exportJson">Exportar JSON</button>
         </li>
 
         <li>
@@ -52,35 +57,119 @@
 
     <!-- Edición -->
     <div class="btn-group btn-group-sm" role="group">
-      <button class="btn btn-outline-secondary" type="button" @click="add">
-        <i class="bi bi-plus-lg me-1"></i> Agregar
+      <button class="btn btn-outline-secondary" type="button" @click="add" title="Agregar globo">
+        <i class="bi bi-plus-lg"></i>
       </button>
-      <button class="btn btn-outline-secondary" type="button" @click="duplicate" :disabled="(store.selectedIds?.length || 0) === 0">
-        <i class="bi bi-files me-1"></i> Duplicar
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="addText"
+        title="Agregar texto"
+      >
+        <i class="bi bi-type"></i>
       </button>
-      <button class="btn btn-outline-secondary" type="button" @click="duplicate5" :disabled="(store.selectedIds?.length || 0) === 0">
-        <i class="bi bi-stack me-1"></i> x5
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="triggerImage"
+        title="Agregar imagen"
+      >
+        <i class="bi bi-image"></i>
       </button>
-
-      <button class="btn btn-outline-secondary" type="button" @click="group" :disabled="!canGroup">
-        <i class="bi bi-collection me-1"></i> Agrupar
+      <input
+        ref="imageInput"
+        type="file"
+        accept="image/png,image/jpeg"
+        class="d-none"
+        @change="onImageFile"
+      />
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="duplicate"
+        :disabled="selCount === 0"
+        title="Duplicar (Ctrl/Cmd+D)"
+      >
+        <i class="bi bi-files"></i>
       </button>
-
-      <button class="btn btn-outline-secondary" type="button" @click="ungroup" :disabled="!canUngroup">
-        <i class="bi bi-collection me-1"></i> Desagrupar
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="groupSelection"
+        :disabled="selCount < 2"
+        title="Agrupar selección"
+      >
+        <i class="bi bi-folder-plus"></i>
+      </button>
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="ungroup"
+        :disabled="!store.selectedGroupId"
+        title="Desagrupar"
+      >
+        <i class="bi bi-folder-symlink"></i>
       </button>
 
       <button
         class="btn btn-outline-secondary"
         type="button"
         @click="toggleLock"
-        :disabled="(store.selectedIds?.length || 0) === 0"
+        :disabled="selCount === 0"
+        :title="lockLabel"
       >
-        <i :class="lockIcon" class="me-1"></i> {{ lockLabel }}
+        <i class="bi" :class="lockIcon"></i>
       </button>
+    </div>
 
-      <button class="btn btn-outline-danger" type="button" @click="del" :disabled="(store.selectedIds?.length || 0) === 0">
-        <i class="bi bi-trash me-1"></i> Eliminar
+    <div class="btn-group btn-group-sm" role="group">
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="sendBackward"
+        :disabled="selCount === 0"
+        title="Enviar atrás (Ctrl/Cmd+[)"
+      >
+        <i class="bi bi-chevron-down"></i>
+      </button>
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="bringForward"
+        :disabled="selCount === 0"
+        title="Traer adelante (Ctrl/Cmd+])"
+      >
+        <i class="bi bi-chevron-up"></i>
+      </button>
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="sendToBack"
+        :disabled="selCount === 0"
+        title="Enviar al fondo (Ctrl/Cmd+Shift+[)"
+      >
+        <i class="bi bi-chevron-double-down"></i>
+      </button>
+      <button
+        class="btn btn-outline-secondary"
+        type="button"
+        @click="bringToFront"
+        :disabled="selCount === 0"
+        title="Traer al frente (Ctrl/Cmd+Shift+])"
+      >
+        <i class="bi bi-chevron-double-up"></i>
+      </button>
+    </div>
+
+    <div class="btn-group btn-group-sm" role="group">
+      <button
+        class="btn btn-outline-danger"
+        type="button"
+        @click="del"
+        :disabled="selCount === 0"
+        title="Eliminar (Supr)"
+      >
+        <i class="bi bi-trash"></i>
       </button>
     </div>
 
@@ -96,6 +185,9 @@
 
       <button class="btn btn-outline-secondary" type="button" @click="store.resetView()">
         <i class="bi bi-aspect-ratio me-1"></i> Reset vista
+      </button>
+      <button class="btn btn-outline-secondary" type="button" @click="openMaterialsModal">
+        <i class="bi bi-boxes me-1"></i> Materiales
       </button>
     </div>
 
@@ -117,13 +209,22 @@
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title">Exportar PNG</h5>
-            <button type="button" class="btn-close" @click="closeExportPng" aria-label="Cerrar"></button>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeExportPng"
+              aria-label="Cerrar"
+            ></button>
           </div>
 
           <div class="modal-body">
             <div class="mb-3">
               <label class="form-label">Nombre de archivo</label>
-              <input class="form-control" v-model.trim="exportForm.fileName" placeholder="diseno.png" />
+              <input
+                class="form-control"
+                v-model.trim="exportForm.fileName"
+                placeholder="diseno.png"
+              />
               <div class="form-text">Se descargará como PNG.</div>
             </div>
 
@@ -137,7 +238,12 @@
             </div>
 
             <div class="form-check form-switch">
-              <input class="form-check-input" type="checkbox" role="switch" v-model="exportForm.cropToContent" />
+              <input
+                class="form-check-input"
+                type="checkbox"
+                role="switch"
+                v-model="exportForm.cropToContent"
+              />
               <label class="form-check-label">Recortar al contenido</label>
             </div>
 
@@ -147,8 +253,28 @@
           </div>
 
           <div class="modal-footer">
-            <button class="btn btn-outline-secondary" type="button" @click="closeExportPng">Cancelar</button>
+            <button class="btn btn-outline-secondary" type="button" @click="closeExportPng">
+              Cancelar
+            </button>
             <button class="btn btn-primary" type="button" @click="doExportPng">Exportar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal fade" ref="materialsModalEl" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Materiales</h5>
+            <button
+              type="button"
+              class="btn-close"
+              @click="closeMaterialsModal"
+              aria-label="Cerrar"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <MaterialsPanel />
           </div>
         </div>
       </div>
@@ -160,11 +286,29 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Modal } from 'bootstrap'
 import { useEditorStore } from '@/stores/editor.store'
+import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
 
 const store = useEditorStore()
 
+const selCount = computed(() => store.selectedIds?.length || 0)
+
+const lockLabel = computed(() => {
+  const sel = store.selectedNodes || []
+  const anyUnlocked = sel.some((n) => !n.locked)
+  return anyUnlocked ? 'Bloquear' : 'Desbloquear'
+})
+
+const lockIcon = computed(() => {
+  const sel = store.selectedNodes || []
+  const anyUnlocked = sel.some((n) => !n.locked)
+  return anyUnlocked ? 'bi-lock' : 'bi-unlock'
+})
+
 const modalEl = ref(null)
+const imageInput = ref(null)
 let modal = null
+const materialsModalEl = ref(null)
+let materialsModal = null
 
 const exportForm = reactive({
   fileName: 'diseno.png',
@@ -178,43 +322,43 @@ const lastSavedText = computed(() => {
   return d.toLocaleTimeString()
 })
 
-const canGroup = computed(() => {
-  const sel = store.selectedNodes || []
-  const unlocked = sel.filter(n => !n.locked)
-  return unlocked.length >= 2
-})
-
-const canUngroup = computed(() => {
-  const sel = store.selectedNodes || []
-  return sel.some(n => !!n.groupId)
-})
-
-const lockLabel = computed(() => {
-  const sel = store.selectedNodes || []
-  if (!sel.length) return 'Bloquear'
-  const allLocked = sel.every(n => !!n.locked)
-  return allLocked ? 'Desbloquear' : 'Bloquear'
-})
-
-const lockIcon = computed(() => {
-  const sel = store.selectedNodes || []
-  if (!sel.length) return 'bi bi-lock'
-  const allLocked = sel.every(n => !!n.locked)
-  return allLocked ? 'bi bi-unlock' : 'bi bi-lock'
-})
-
-
 onMounted(() => {
   if (modalEl.value) modal = new Modal(modalEl.value, { backdrop: 'static' })
+  if (materialsModalEl.value)
+    materialsModal = new Modal(materialsModalEl.value, { backdrop: 'static' })
 })
 
 onBeforeUnmount(() => {
   modal?.hide?.()
   modal = null
+  materialsModal?.hide?.()
+  materialsModal = null
 })
 
 function add() {
   store.addNode()
+}
+
+function addText() {
+  store.addTextNode?.()
+}
+
+function triggerImage() {
+  imageInput.value?.click?.()
+}
+
+function onImageFile(e) {
+  const file = e.target?.files?.[0]
+  if (!file) return
+  if (!['image/png', 'image/jpeg'].includes(file.type)) return
+
+  const reader = new FileReader()
+  reader.onload = () => {
+    const src = String(reader.result || '')
+    store.addImageNode?.({ src })
+    if (imageInput.value) imageInput.value.value = ''
+  }
+  reader.readAsDataURL(file)
 }
 
 function del() {
@@ -222,25 +366,41 @@ function del() {
 }
 
 function duplicate() {
-  // si hay multi, duplica todo (si solo hay uno, igual funciona)
-  if ((store.selectedIds?.length || 0) > 1) store.duplicateSelectedMany({ count: 1, stepX: 18, stepY: 18 })
-  else store.duplicateSelected({ offset: 18 })
+  store.duplicateSelected()
 }
 
-function duplicate5() {
-  store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
-}
-
-function group() {
+function groupSelection() {
   store.groupSelection()
 }
 
 function ungroup() {
-  store.ungroupSelection()
+  store.ungroupSelected()
 }
 
 function toggleLock() {
-  store.toggleLockSelection()
+  if (typeof store.toggleLockSelection === 'function') {
+    store.toggleLockSelection()
+    return
+  }
+
+  const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+  for (const id of ids) store.toggleLock(id)
+}
+
+function bringToFront() {
+  store.bringToFrontSelected?.()
+}
+
+function sendToBack() {
+  store.sendToBackSelected?.()
+}
+
+function bringForward() {
+  store.bringForwardSelected?.()
+}
+
+function sendBackward() {
+  store.sendBackwardSelected?.()
 }
 
 function toggleSnap() {
@@ -254,6 +414,14 @@ function openExportPng() {
 
 function closeExportPng() {
   modal?.hide?.()
+}
+
+function openMaterialsModal() {
+  materialsModal?.show?.()
+}
+
+function closeMaterialsModal() {
+  materialsModal?.hide?.()
 }
 
 function doExportPng() {
@@ -282,7 +450,7 @@ async function onImportFile(e) {
     const text = await file.text()
     const data = JSON.parse(text)
     store.importJsonObject(data)
-  } catch (err) {
+  } catch {
     window.alert('No se pudo importar el JSON. Verifica que sea válido.')
   }
 }

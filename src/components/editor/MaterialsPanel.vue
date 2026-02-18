@@ -4,87 +4,162 @@
       <div class="d-flex align-items-start justify-content-between gap-2">
         <div>
           <div class="fw-bold">Materiales</div>
-          <div class="text-muted small">Conteo, costo y cotización</div>
+          <div class="text-muted panel-subtitle">Conteo, costo y cotización</div>
         </div>
 
         <div class="d-flex gap-2">
-          <button class="btn btn-sm btn-outline-secondary" type="button" @click="copySummary" :disabled="summary.total === 0">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="copySummary"
+            :disabled="summary.total === 0"
+          >
             <i class="bi bi-clipboard me-1"></i> Copiar
           </button>
 
-          <button class="btn btn-sm btn-outline-secondary" type="button" @click="exportCsv" :disabled="summary.total === 0">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="exportCsv"
+            :disabled="summary.total === 0"
+          >
             <i class="bi bi-filetype-csv me-1"></i> CSV
           </button>
 
-          <button class="btn btn-sm btn-outline-secondary" type="button" @click="exportJson" :disabled="summary.total === 0">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="exportJson"
+            :disabled="summary.total === 0"
+          >
             <i class="bi bi-filetype-json me-1"></i> JSON
+          </button>
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="collapsed = !collapsed"
+            :title="collapsed ? 'Expandir' : 'Contraer'"
+          >
+            <i class="bi" :class="collapsed ? 'bi-chevron-down' : 'bi-chevron-up'"></i>
           </button>
         </div>
       </div>
 
-      <hr class="my-3" />
+      <hr class="my-3" v-show="!collapsed" />
 
       <!-- Filtros -->
-      <div class="filters">
+      <div v-show="!collapsed" class="filters">
         <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" role="switch" v-model="filters.includeHidden" />
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
+            v-model="filters.includeHidden"
+          />
           <label class="form-check-label small">Incluir ocultos</label>
         </div>
 
         <div class="form-check form-switch">
-          <input class="form-check-input" type="checkbox" role="switch" v-model="filters.includeLocked" />
+          <input
+            class="form-check-input"
+            type="checkbox"
+            role="switch"
+            v-model="filters.includeLocked"
+          />
           <label class="form-check-label small">Incluir bloqueados</label>
         </div>
 
         <div class="ms-auto d-flex gap-2">
-          <button class="btn btn-sm btn-outline-secondary" type="button" @click="expandAll" :disabled="summary.byTypeColor.length === 0">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="expandAll"
+            :disabled="summary.byTypeColor.length === 0"
+          >
             Expandir
           </button>
-          <button class="btn btn-sm btn-outline-secondary" type="button" @click="collapseAll" :disabled="summary.byTypeColor.length === 0">
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="collapseAll"
+            :disabled="summary.byTypeColor.length === 0"
+          >
             Colapsar
           </button>
         </div>
       </div>
 
-      <div class="mt-3 d-flex align-items-center justify-content-between">
+      <div v-show="!collapsed" class="mt-3 d-flex align-items-center justify-content-between">
         <div class="text-muted">Total</div>
         <div class="fw-bold">{{ summary.total }}</div>
       </div>
 
-      <div v-if="summary.hasCosts" class="mt-2 d-flex align-items-center justify-content-between">
+      <div
+        v-show="!collapsed"
+        v-if="summary.hasCosts"
+        class="mt-2 d-flex align-items-center justify-content-between"
+      >
         <div class="text-muted">Costo materiales</div>
         <div class="fw-bold">{{ money(summary.estimatedCost) }}</div>
       </div>
 
-      <hr class="my-3" />
+      <hr class="my-3" v-show="!collapsed" />
 
       <!-- Cotización -->
-      <div class="d-flex align-items-center justify-content-between mb-2">
+      <div v-show="!collapsed" class="d-flex align-items-center justify-content-between mb-2">
         <div class="section-title">Cotización</div>
-        <button class="btn btn-sm btn-primary" type="button" @click="exportPdf" :disabled="summary.total === 0 || exportingPdf">
+        <button
+          class="btn btn-sm btn-primary"
+          type="button"
+          @click="exportPdf"
+          :disabled="summary.total === 0 || exportingPdf"
+        >
           <span v-if="exportingPdf">Generando...</span>
           <span v-else><i class="bi bi-file-earmark-pdf me-1"></i> PDF</span>
         </button>
       </div>
 
-      <div class="quote">
+      <div v-show="!collapsed" class="quote">
         <div class="row g-2">
           <div class="col-6">
             <label class="form-label">Desperdicio (%)</label>
-            <input type="number" class="form-control form-control-sm" min="0" step="1" v-model.number="quote.wastePct" />
+            <input
+              type="number"
+              class="form-control form-control-sm"
+              min="0"
+              step="1"
+              v-model.number="quote.wastePct"
+            />
           </div>
           <div class="col-6">
             <label class="form-label">Mano de obra (fijo)</label>
-            <input type="number" class="form-control form-control-sm" min="0" step="1" v-model.number="quote.laborFixed" />
+            <input
+              type="number"
+              class="form-control form-control-sm"
+              min="0"
+              step="1"
+              v-model.number="quote.laborFixed"
+            />
           </div>
 
           <div class="col-6">
             <label class="form-label">Mano de obra (%)</label>
-            <input type="number" class="form-control form-control-sm" min="0" step="1" v-model.number="quote.laborPct" />
+            <input
+              type="number"
+              class="form-control form-control-sm"
+              min="0"
+              step="1"
+              v-model.number="quote.laborPct"
+            />
           </div>
           <div class="col-6">
             <label class="form-label">Nombre / Proyecto</label>
-            <input type="text" class="form-control form-control-sm" v-model.trim="quote.projectName" placeholder="Figura unicornio, arco orgánico..." />
+            <input
+              type="text"
+              class="form-control form-control-sm"
+              v-model.trim="quote.projectName"
+              placeholder="Figura unicornio, arco orgánico..."
+            />
           </div>
         </div>
 
@@ -106,23 +181,24 @@
         </div>
 
         <div class="text-muted small mt-2">
-          El PDF incluye diseño + materiales + totales. Los costos salen del catálogo (cost por tipo).
+          El PDF incluye diseño + materiales + totales. Los costos salen del catálogo (cost por
+          tipo).
         </div>
       </div>
 
-      <hr class="my-3" />
+      <hr class="my-3" v-show="!collapsed" />
 
       <!-- Por tipo + colores -->
-      <div class="d-flex align-items-center justify-content-between mb-2">
+      <div v-show="!collapsed" class="d-flex align-items-center justify-content-between mb-2">
         <div class="section-title">Por tipo</div>
         <div class="text-muted small">{{ summary.byTypeColor.length }}</div>
       </div>
 
-      <div v-if="summary.byTypeColor.length === 0" class="text-muted small">
+      <div v-show="!collapsed" v-if="summary.byTypeColor.length === 0" class="text-muted small">
         No hay globos con los filtros actuales.
       </div>
 
-      <div v-else class="types">
+      <div v-show="!collapsed" v-else class="types">
         <button
           v-for="t in summary.byTypeColor"
           :key="t.typeId"
@@ -143,7 +219,10 @@
 
             <div class="d-flex align-items-center gap-2">
               <span class="pill">{{ t.qty }}</span>
-              <i class="bi" :class="openTypeIds.has(t.typeId) ? 'bi-chevron-up' : 'bi-chevron-down'"></i>
+              <i
+                class="bi"
+                :class="openTypeIds.has(t.typeId) ? 'bi-chevron-up' : 'bi-chevron-down'"
+              ></i>
             </div>
           </div>
 
@@ -152,7 +231,9 @@
               <span class="swatch" :style="{ background: c.color }"></span>
               <div class="minw0 flex-grow-1">
                 <div class="fw-semibold text-truncate">{{ c.color }}</div>
-                <div class="text-muted small">{{ c.qty }} {{ c.qty === 1 ? 'globo' : 'globos' }}</div>
+                <div class="text-muted small">
+                  {{ c.qty }} {{ c.qty === 1 ? 'globo' : 'globos' }}
+                </div>
               </div>
               <span class="pill">{{ c.qty }}</span>
             </div>
@@ -184,7 +265,7 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
 import { useCatalogStore } from '@/stores/catalog.store'
 import { jsPDF } from 'jspdf'
@@ -195,6 +276,25 @@ const catalog = useCatalogStore()
 const filters = reactive({
   includeHidden: false,
   includeLocked: true,
+})
+
+const collapsed = ref(false)
+
+onMounted(() => {
+  try {
+    const saved = localStorage.getItem('panel_collapsed_materials')
+    if (saved !== null) collapsed.value = saved === 'true'
+  } catch {
+    // ignore
+  }
+})
+
+watch(collapsed, (value) => {
+  try {
+    localStorage.setItem('panel_collapsed_materials', String(value))
+  } catch {
+    // ignore
+  }
 })
 
 const summary = computed(() => {
@@ -220,7 +320,7 @@ const quoteTotals = computed(() => {
 
   const laborFixed = Math.max(0, Number(quote.laborFixed || 0))
   const laborPct = Math.max(0, Number(quote.laborPct || 0)) / 100
-  const laborTotal = laborFixed + (materialsWithWaste * laborPct)
+  const laborTotal = laborFixed + materialsWithWaste * laborPct
 
   const grandTotal = materialsWithWaste + laborTotal
 
@@ -237,11 +337,11 @@ const quoteTotals = computed(() => {
 // UI: abiertos
 const openTypeIds = ref(new Set())
 watch(
-  () => summary.value.byTypeColor.map(x => x.typeId).join('|'),
+  () => summary.value.byTypeColor.map((x) => x.typeId).join('|'),
   () => {
-    const valid = new Set(summary.value.byTypeColor.map(x => x.typeId))
-    openTypeIds.value = new Set([...openTypeIds.value].filter(id => valid.has(id)))
-  }
+    const valid = new Set(summary.value.byTypeColor.map((x) => x.typeId))
+    openTypeIds.value = new Set([...openTypeIds.value].filter((id) => valid.has(id)))
+  },
 )
 
 const hint = ref('')
@@ -255,7 +355,7 @@ function toggleOpen(typeId) {
 }
 
 function expandAll() {
-  openTypeIds.value = new Set(summary.value.byTypeColor.map(x => x.typeId))
+  openTypeIds.value = new Set(summary.value.byTypeColor.map((x) => x.typeId))
 }
 
 function collapseAll() {
@@ -341,13 +441,22 @@ async function exportPdf() {
     cursorY += 14
 
     doc.setFont('helvetica', 'normal')
-    doc.text(`Total globos: ${s.total}`, margin, cursorY); cursorY += 12
+    doc.text(`Total globos: ${s.total}`, margin, cursorY)
+    cursorY += 12
 
     if (s.hasCosts) {
-      doc.text(`Costo materiales: ${money(qt.baseMaterials)}`, margin, cursorY); cursorY += 12
-      doc.text(`Desperdicio: ${Number(quote.wastePct || 0)}%`, margin, cursorY); cursorY += 12
-      doc.text(`Materiales con desperdicio: ${money(qt.materialsWithWaste)}`, margin, cursorY); cursorY += 12
-      doc.text(`Mano de obra: ${money(qt.laborTotal)} (fijo ${money(qt.laborFixed)} + ${Number(quote.laborPct || 0)}%)`, margin, cursorY); cursorY += 12
+      doc.text(`Costo materiales: ${money(qt.baseMaterials)}`, margin, cursorY)
+      cursorY += 12
+      doc.text(`Desperdicio: ${Number(quote.wastePct || 0)}%`, margin, cursorY)
+      cursorY += 12
+      doc.text(`Materiales con desperdicio: ${money(qt.materialsWithWaste)}`, margin, cursorY)
+      cursorY += 12
+      doc.text(
+        `Mano de obra: ${money(qt.laborTotal)} (fijo ${money(qt.laborFixed)} + ${Number(quote.laborPct || 0)}%)`,
+        margin,
+        cursorY,
+      )
+      cursorY += 12
 
       doc.setFont('helvetica', 'bold')
       doc.text(`TOTAL: ${money(qt.grandTotal)}`, margin, cursorY)
@@ -368,7 +477,8 @@ async function exportPdf() {
 
     const lines = []
     for (const t of s.byType) {
-      const costPart = s.hasCosts && t.unitCost > 0 ? ` | ${money(t.unitCost)} | ${money(t.subtotal)}` : ''
+      const costPart =
+        s.hasCosts && t.unitCost > 0 ? ` | ${money(t.unitCost)} | ${money(t.subtotal)}` : ''
       lines.push(`${t.typeName} | qty ${t.qty}${costPart}`)
     }
 
@@ -384,11 +494,15 @@ async function exportPdf() {
       doc.setFont('courier', 'normal')
       doc.setFontSize(9)
 
-      const lines2 = s.byColor.map(c => `${c.color} | qty ${c.qty}`)
+      const lines2 = s.byColor.map((c) => `${c.color} | qty ${c.qty}`)
       cursorY = writeLines(doc, lines2, margin, cursorY, pageW - margin * 2, pageH - margin)
     }
 
-    const safeName = (quote.projectName || 'cotizacion').trim().slice(0, 40).replace(/[^\w\- ]+/g, '').replace(/\s+/g, '_')
+    const safeName = (quote.projectName || 'cotizacion')
+      .trim()
+      .slice(0, 40)
+      .replace(/[^\w\- ]+/g, '')
+      .replace(/\s+/g, '_')
     doc.save(`${safeName || 'cotizacion'}.pdf`)
 
     flash('PDF descargado.')
@@ -424,7 +538,9 @@ function buildTextSummary(s, qt, projectName) {
     lines.push(`Costo materiales: ${money(qt.baseMaterials)}`)
     lines.push(`Desperdicio: ${Number(quote.wastePct || 0)}%`)
     lines.push(`Materiales con desperdicio: ${money(qt.materialsWithWaste)}`)
-    lines.push(`Mano de obra: ${money(qt.laborTotal)} (fijo ${money(qt.laborFixed)} + ${Number(quote.laborPct || 0)}%)`)
+    lines.push(
+      `Mano de obra: ${money(qt.laborTotal)} (fijo ${money(qt.laborFixed)} + ${Number(quote.laborPct || 0)}%)`,
+    )
     lines.push(`TOTAL: ${money(qt.grandTotal)}`)
   } else {
     lines.push(`Costos no configurados en catálogo.`)
@@ -432,7 +548,8 @@ function buildTextSummary(s, qt, projectName) {
   lines.push(``)
   lines.push(`Por tipo:`)
   for (const t of s.byType) {
-    const costPart = s.hasCosts && t.unitCost > 0 ? ` | ${money(t.unitCost)} c/u | ${money(t.subtotal)}` : ''
+    const costPart =
+      s.hasCosts && t.unitCost > 0 ? ` | ${money(t.unitCost)} c/u | ${money(t.subtotal)}` : ''
     lines.push(`- ${t.typeName}: ${t.qty}${costPart}`)
   }
   lines.push(``)
@@ -443,18 +560,22 @@ function buildTextSummary(s, qt, projectName) {
 
 function buildCsv(s) {
   const rows = []
-  rows.push(['typeId', 'typeName', 'unitCost', 'qtyType', 'color', 'qtyColor', 'subtotalType'].join(','))
+  rows.push(
+    ['typeId', 'typeName', 'unitCost', 'qtyType', 'color', 'qtyColor', 'subtotalType'].join(','),
+  )
   for (const t of s.byTypeColor) {
     for (const c of t.colors) {
-      rows.push([
-        esc(t.typeId),
-        esc(t.typeName),
-        num(t.unitCost),
-        num(t.qty),
-        esc(c.color),
-        num(c.qty),
-        num(t.subtotal),
-      ].join(','))
+      rows.push(
+        [
+          esc(t.typeId),
+          esc(t.typeName),
+          num(t.unitCost),
+          num(t.qty),
+          esc(c.color),
+          num(c.qty),
+          num(t.subtotal),
+        ].join(','),
+      )
     }
   }
   return rows.join('\n')
@@ -499,13 +620,17 @@ function flash(msg) {
   border-radius: 16px;
 }
 
+.panel-subtitle {
+  font-size: 0.72rem;
+}
+
 .section-title {
   font-weight: 800;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
 }
 
 .form-label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 700;
   margin-bottom: 0.25rem;
 }
@@ -518,8 +643,8 @@ function flash(msg) {
 }
 
 .quote {
-  border: 1px solid rgba(0,0,0,.08);
-  background: rgba(0,0,0,.01);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(0, 0, 0, 0.01);
   border-radius: 16px;
   padding: 12px;
 }
@@ -533,7 +658,7 @@ function flash(msg) {
 .total-final {
   margin-top: 6px;
   padding-top: 8px;
-  border-top: 1px solid rgba(0,0,0,.10);
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
   font-weight: 900;
 }
 
@@ -545,15 +670,15 @@ function flash(msg) {
 
 .type-card {
   width: 100%;
-  border: 1px solid rgba(0,0,0,.08);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   background: #fff;
   border-radius: 16px;
   padding: 12px;
   text-align: left;
 
   &:hover {
-    border-color: rgba(0,0,0,.16);
-    background: rgba(0,0,0,.01);
+    border-color: rgba(0, 0, 0, 0.16);
+    background: rgba(0, 0, 0, 0.01);
   }
 }
 
@@ -568,8 +693,8 @@ function flash(msg) {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(0,0,0,.06);
-  background: rgba(0,0,0,.01);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.01);
   border-radius: 14px;
   padding: 10px;
 }
@@ -584,7 +709,7 @@ function flash(msg) {
   display: flex;
   align-items: center;
   gap: 10px;
-  border: 1px solid rgba(0,0,0,.08);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   background: #fff;
   border-radius: 14px;
   padding: 10px;
@@ -594,7 +719,7 @@ function flash(msg) {
   width: 18px;
   height: 18px;
   border-radius: 8px;
-  border: 1px solid rgba(0,0,0,.10);
+  border: 1px solid rgba(0, 0, 0, 0.1);
   flex: 0 0 auto;
 }
 
@@ -606,7 +731,7 @@ function flash(msg) {
   font-weight: 900;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(0,0,0,.04);
-  border: 1px solid rgba(0,0,0,.06);
+  background: rgba(0, 0, 0, 0.04);
+  border: 1px solid rgba(0, 0, 0, 0.06);
 }
 </style>

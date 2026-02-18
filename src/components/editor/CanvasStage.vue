@@ -3,17 +3,6 @@
     Modo pegar activo · Ctrl/Cmd+V para repetir · ESC para salir
   </div>
 
-  <!-- Toggle Pan (útil en móvil) -->
-  <button
-    type="button"
-    class="pan-toggle"
-    :class="{ active: panMode }"
-    @click="togglePanMode"
-    title="Modo Pan"
-  >
-    Pan
-  </button>
-
   <div class="canvas card border-0 shadow-sm">
     <div class="card-body p-0 h-100">
       <div ref="wrap" class="stage-wrap">
@@ -24,22 +13,18 @@
           :canPaste="(store.clipboard?.nodes?.length || 0) > 0"
           :canGroup="canGroup"
           :canUngroup="canUngroup"
-          :canLock="(store.selectedIds?.length || 0) > 0"
           @action="onMenuAction"
           @close="closeMenu"
-
         />
 
         <v-stage
           ref="stageRef"
           :config="stageConfig"
           @wheel="onWheel"
-
           @mousedown="onStagePointerDown"
           @mousemove="onStagePointerMove"
           @click="onStageClick"
           @contextmenu="onStageContextMenu"
-
           @touchstart="onStageTouchStart"
           @touchmove="onStageTouchMove"
           @touchend="onStageTouchEnd"
@@ -66,11 +51,19 @@
                 @dragstart="onDragStart(node, $event)"
                 @dragmove="onDragMove(node, $event)"
                 @dragend="onDragEnd(node, $event)"
-                @transformend="onTransformEnd(node, $event)"
+                @transformend="onTransformEnd"
               >
-                <v-ellipse :config="ellipseConfig(node)" />
-                <v-ellipse :config="shineConfig(node)" />
-                <v-circle :config="knotConfig(node)" />
+                <template v-if="isTextNode(node)">
+                  <v-text :config="textConfig(node)" />
+                </template>
+                <template v-else-if="isImageNode(node)">
+                  <v-image :config="imageConfig(node)" />
+                </template>
+                <template v-else>
+                  <v-ellipse :config="ellipseConfig(node)" />
+                  <v-ellipse :config="shineConfig(node)" />
+                  <v-circle :config="knotConfig(node)" />
+                </template>
               </v-group>
             </template>
 
@@ -86,20 +79,22 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
+import { useCatalogStore } from '@/stores/catalog.store'
+import { PX_PER_CM, MIN_CANVAS_CM } from '@/constants/canvas'
 import ContextMenu from '@/components/editor/ContextMenu.vue'
 
- 
 const store = useEditorStore()
+const catalog = useCatalogStore()
 
 const canGroup = computed(() => {
   const sel = store.selectedNodes || []
-  const unlocked = sel.filter(n => !n.locked)
+  const unlocked = sel.filter((n) => !n.locked)
   return unlocked.length >= 2
 })
 
 const canUngroup = computed(() => {
   const sel = store.selectedNodes || []
-  return sel.some(n => !!n.groupId)
+  return sel.some((n) => !!n.groupId)
 })
 
 const wrap = ref(null)
@@ -107,8 +102,17 @@ const stageRef = ref(null)
 const layerRef = ref(null)
 const trRef = ref(null)
 
-const canvasWidth = 1600
-const canvasHeight = 900
+const canvasSpecs = computed(() => {
+  const widthCm = Math.max(MIN_CANVAS_CM, Number(store.canvas.widthCm ?? 160))
+  const heightCm = Math.max(MIN_CANVAS_CM, Number(store.canvas.heightCm ?? 90))
+  return {
+    width: widthCm * PX_PER_CM,
+    height: heightCm * PX_PER_CM,
+  }
+})
+
+const canvasWidth = computed(() => canvasSpecs.value.width)
+const canvasHeight = computed(() => canvasSpecs.value.height)
 
 const size = ref({ w: 300, h: 300 })
 let ro = null
@@ -126,9 +130,9 @@ const stageConfig = computed(() => ({
 const bgConfig = computed(() => ({
   x: 0,
   y: 0,
-  width: canvasWidth,
-  height: canvasHeight,
-  fill: '#ffffff',
+  width: canvasWidth.value,
+  height: canvasHeight.value,
+  fill: store.canvas?.backgroundColor || '#ffffff',
   id: 'bg',
   name: 'bg',
   listening: true,
@@ -139,7 +143,31 @@ const transformerConfig = {
   enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
   boundBoxFunc: (oldBox, newBox) => {
     if (newBox.width < 20 || newBox.height < 20) return oldBox
-    return newBox
+    const node = store.selectedNode
+    if (!node || node.kind === 'text') return newBox
+
+    const range = getInflationScaleRange(node)
+    if (!range) return newBox
+
+    const scaleX = newBox.width / oldBox.width
+    const scaleY = newBox.height / oldBox.height
+    const clampedScaleX = clamp(scaleX, range.minScale, range.maxScale)
+    const clampedScaleY = clamp(scaleY, range.minScale, range.maxScale)
+
+    if (clampedScaleX === scaleX && clampedScaleY === scaleY) return newBox
+
+    const nextWidth = oldBox.width * clampedScaleX
+    const nextHeight = oldBox.height * clampedScaleY
+    const cx = oldBox.x + oldBox.width / 2
+    const cy = oldBox.y + oldBox.height / 2
+
+    return {
+      ...newBox,
+      width: nextWidth,
+      height: nextHeight,
+      x: cx - nextWidth / 2,
+      y: cy - nextHeight / 2,
+    }
   },
 }
 
@@ -158,13 +186,13 @@ function setCursor(mode) {
   el.style.cursor = mode
 }
 
-/* ================== PAN MODE (móvil) ================== */
-const panMode = ref(false)
-function togglePanMode() {
-  panMode.value = !panMode.value
-  if (panMode.value) setCursor('grab')
-  else if (!panning.value && !spaceDown.value) setCursor('default')
-}
+/* ================== PAN MODE ================== */
+const panMode = computed(() => !!store.ui?.panMode)
+
+watch(panMode, (value) => {
+  if (panning.value || spaceDown.value) return
+  setCursor(value ? 'grab' : 'default')
+})
 
 /* ================== NODE CONFIGS ================== */
 function groupConfig(n) {
@@ -178,6 +206,14 @@ function groupConfig(n) {
     opacity: n.opacity,
     draggable: !n.locked && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
   }
+}
+
+function isTextNode(n) {
+  return n?.kind === 'text'
+}
+
+function isImageNode(n) {
+  return n?.kind === 'image'
 }
 
 function ellipseConfig(n) {
@@ -194,6 +230,45 @@ function ellipseConfig(n) {
     strokeWidth: 1,
     listening: true,
     perfectDrawEnabled: false,
+  }
+}
+
+function textConfig(n) {
+  const meta = n?.meta || {}
+  const fontSize = Number(meta.fontSize || 24)
+  return {
+    x: 0,
+    y: 0,
+    text: String(meta.text || 'New text'),
+    fontSize: Number.isFinite(fontSize) ? fontSize : 24,
+    fontFamily: String(meta.fontFamily || 'Times New Roman'),
+    fill: String(meta.fill || n.color || '#222222'),
+    align: String(meta.align || 'left'),
+    width: Number.isFinite(Number(meta.width)) ? Number(meta.width) : 220,
+  }
+}
+
+const imageCache = new Map()
+
+function imageConfig(n) {
+  const meta = n?.meta || {}
+  const src = String(meta.src || '')
+  if (src && !imageCache.has(src)) {
+    const img = new Image()
+    img.src = src
+    imageCache.set(src, img)
+  }
+
+  const img = src ? imageCache.get(src) : null
+  const width = Number(meta.width || 160)
+  const height = Number(meta.height || 120)
+
+  return {
+    x: -width / 2,
+    y: -height / 2,
+    image: img || null,
+    width,
+    height,
   }
 }
 
@@ -228,16 +303,28 @@ function knotConfig(n) {
 const gridSize = 50
 const gridLines = computed(() => {
   const lines = []
-  for (let x = 0; x <= canvasWidth; x += gridSize) {
+  const maxWidth = canvasWidth.value
+  const maxHeight = canvasHeight.value
+  for (let x = 0; x <= maxWidth; x += gridSize) {
     lines.push({
       key: `v-${x}`,
-      cfg: { points: [x, 0, x, canvasHeight], stroke: 'rgba(0,0,0,0.10)', strokeWidth: 1, listening: false },
+      cfg: {
+        points: [x, 0, x, maxHeight],
+        stroke: 'rgba(0,0,0,0.10)',
+        strokeWidth: 1,
+        listening: false,
+      },
     })
   }
-  for (let y = 0; y <= canvasHeight; y += gridSize) {
+  for (let y = 0; y <= maxHeight; y += gridSize) {
     lines.push({
       key: `h-${y}`,
-      cfg: { points: [0, y, canvasWidth, y], stroke: 'rgba(0,0,0,0.10)', strokeWidth: 1, listening: false },
+      cfg: {
+        points: [0, y, maxWidth, y],
+        stroke: 'rgba(0,0,0,0.10)',
+        strokeWidth: 1,
+        listening: false,
+      },
     })
   }
   return lines
@@ -257,9 +344,46 @@ function getTolerance() {
 }
 
 function nodeHalfSize(n) {
+  if (isImageNode(n)) {
+    const width = Number(n?.meta?.width || 160)
+    const height = Number(n?.meta?.height || 120)
+    const rx = (width / 2) * Math.abs(Number(n?.scaleX ?? 1))
+    const ry = (height / 2) * Math.abs(Number(n?.scaleY ?? 1))
+    return { rx, ry }
+  }
+
+  if (isTextNode(n)) {
+    const fontSize = Number(n?.meta?.fontSize || 24)
+    const width = Number(n?.meta?.width || 220)
+    const height = fontSize * 1.2
+    const rx = (width / 2) * Math.abs(Number(n?.scaleX ?? 1))
+    const ry = (height / 2) * Math.abs(Number(n?.scaleY ?? 1))
+    return { rx, ry }
+  }
+
   const rx = Number(n?.meta?.radiusX ?? 46) * Math.abs(Number(n?.scaleX ?? 1))
   const ry = Number(n?.meta?.radiusY ?? 60) * Math.abs(Number(n?.scaleY ?? 1))
   return { rx, ry }
+}
+
+function clamp(v, min, max) {
+  if (!Number.isFinite(v)) return min
+  return Math.min(max, Math.max(min, v))
+}
+
+function getInflationScaleRange(node) {
+  const type = catalog.typeById?.(node.typeId)
+  if (!type) return null
+
+  const inflation = type.inflation || {}
+  const minScale = Number(inflation.minScale ?? 0.7)
+  const maxScale = Number(inflation.maxScale ?? 1.0)
+  if (!Number.isFinite(minScale) || !Number.isFinite(maxScale)) return null
+
+  return {
+    minScale: minScale,
+    maxScale: maxScale,
+  }
 }
 
 function nodeBoxAt(n, cx, cy) {
@@ -268,7 +392,18 @@ function nodeBoxAt(n, cx, cy) {
   const right = cx + rx
   const top = cy - ry
   const bottom = cy + ry
-  return { left, right, top, bottom, centerX: cx, centerY: cy, rx, ry, width: rx * 2, height: ry * 2 }
+  return {
+    left,
+    right,
+    top,
+    bottom,
+    centerX: cx,
+    centerY: cy,
+    rx,
+    ry,
+    width: rx * 2,
+    height: ry * 2,
+  }
 }
 
 /* ================== GUIDES ================== */
@@ -278,11 +413,29 @@ const guidesLines = computed(() => {
   const lines = []
   if (guides.value.x && Number.isFinite(guides.value.x.value)) {
     const x = guides.value.x.value
-    lines.push({ key: 'gx', cfg: { points: [x, 0, x, canvasHeight], stroke: 'rgba(13,110,253,.85)', strokeWidth: 1, dash: [6, 4], listening: false } })
+    lines.push({
+      key: 'gx',
+      cfg: {
+        points: [x, 0, x, canvasHeight.value],
+        stroke: 'rgba(13,110,253,.85)',
+        strokeWidth: 1,
+        dash: [6, 4],
+        listening: false,
+      },
+    })
   }
   if (guides.value.y && Number.isFinite(guides.value.y.value)) {
     const y = guides.value.y.value
-    lines.push({ key: 'gy', cfg: { points: [0, y, canvasWidth, y], stroke: 'rgba(13,110,253,.85)', strokeWidth: 1, dash: [6, 4], listening: false } })
+    lines.push({
+      key: 'gy',
+      cfg: {
+        points: [0, y, canvasWidth.value, y],
+        stroke: 'rgba(13,110,253,.85)',
+        strokeWidth: 1,
+        dash: [6, 4],
+        listening: false,
+      },
+    })
   }
   return lines
 })
@@ -296,13 +449,15 @@ function buildSnapCandidates(excludeIds = []) {
   const xs = []
   const ys = []
 
+  const cw = canvasWidth.value
+  const ch = canvasHeight.value
   xs.push({ value: 0, type: 'canvas-left' })
-  xs.push({ value: canvasWidth / 2, type: 'canvas-center-x' })
-  xs.push({ value: canvasWidth, type: 'canvas-right' })
+  xs.push({ value: cw / 2, type: 'canvas-center-x' })
+  xs.push({ value: cw, type: 'canvas-right' })
 
   ys.push({ value: 0, type: 'canvas-top' })
-  ys.push({ value: canvasHeight / 2, type: 'canvas-center-y' })
-  ys.push({ value: canvasHeight, type: 'canvas-bottom' })
+  ys.push({ value: ch / 2, type: 'canvas-center-y' })
+  ys.push({ value: ch, type: 'canvas-bottom' })
 
   for (const n of store.nodes) {
     if (n.visible === false) continue
@@ -399,7 +554,12 @@ function snapBoxToGuides(box, candidates) {
     }
   }
 
-  return { dx: bestX ? bestX.diff : 0, dy: bestY ? bestY.diff : 0, gx: bestX ? bestX.guide : null, gy: bestY ? bestY.guide : null }
+  return {
+    dx: bestX ? bestX.diff : 0,
+    dy: bestY ? bestY.diff : 0,
+    gx: bestX ? bestX.guide : null,
+    gy: bestY ? bestY.guide : null,
+  }
 }
 
 /* ================== POINTER (canvas coords) ================== */
@@ -420,6 +580,9 @@ function onNodePointerDown(node, e) {
   // si estamos en pan, no seleccionar
   if (panning.value || panMode.value || spaceDown.value) return
 
+  // locked = intocable desde el canvas
+  if (node?.locked) return
+
   if (e?.cancelBubble !== undefined) e.cancelBubble = true
   if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
 
@@ -430,6 +593,12 @@ function onNodePointerDown(node, e) {
 
   if (mod || append) {
     store.toggleSelect(node.id)
+    closeMenu()
+    return
+  }
+
+  if (!append && !mod && node.groupId) {
+    store.selectGroup(node.groupId)
     closeMenu()
     return
   }
@@ -457,16 +626,17 @@ watch(
     const konvaNodes = []
     for (const id of list) {
       const n = stage.findOne('#' + String(id))
-      if (n) konvaNodes.push(n)
+      const model = store.nodes.find((x) => x.id === id)
+      if (n && model && !model.locked) konvaNodes.push(n)
     }
 
-    const anyLocked = store.selectedNodes?.some?.(n => !!n.locked) || false
-    tr.enabledAnchors(anyLocked ? [] : transformerConfig.enabledAnchors)
+    // si alguno está locked, lo ignoramos (intocable) y dejamos anchors normales
+    tr.enabledAnchors(transformerConfig.enabledAnchors)
 
     tr.nodes(konvaNodes)
     tr.getLayer()?.batchDraw()
   },
-  { immediate: true, deep: true }
+  { immediate: true, deep: true },
 )
 
 /* ================== MULTI-DRAG + SNAP ================== */
@@ -475,9 +645,12 @@ let dragSession = null
 function onDragStart(node, e) {
   // si panMode está activo, no arrastrar nodos
   if (panMode.value || spaceDown.value || panning.value) {
-    e?.cancelBubble && (e.cancelBubble = true)
+    if (e?.cancelBubble) e.cancelBubble = true
     return
   }
+
+  // locked = intocable desde el canvas
+  if (node?.locked) return
 
   const t = e.target
   if (!t) return
@@ -488,8 +661,8 @@ function onDragStart(node, e) {
   const stage = getStage()
   if (!stage) return
 
-  const selected = store.selectedNodes.filter(n => !n.locked)
-  const groupIds = selected.map(n => n.id)
+  const selected = store.selectedNodes.filter((n) => !n.locked)
+  const groupIds = selected.map((n) => n.id)
 
   dragSession = {
     anchorId: node.id,
@@ -497,7 +670,7 @@ function onDragStart(node, e) {
     ids: groupIds,
     startPos: new Map(),
     candidates: buildSnapCandidates(groupIds),
-    anchorModel: store.nodes.find(n => n.id === node.id) || node,
+    anchorModel: store.nodes.find((n) => n.id === node.id) || node,
   }
 
   for (const id of groupIds) {
@@ -580,15 +753,22 @@ function onDragEnd(node, e) {
   }
 }
 
-function onTransformEnd(node, e) {
+function onTransformEnd() {
   const stage = getStage()
   if (!stage) return
 
   const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
   if (!ids.length) return
 
+  // locked = no se transforma
+  const unlockedIds = ids.filter((id) => {
+    const n = store.nodes.find((x) => x.id === id)
+    return n && !n.locked
+  })
+  if (!unlockedIds.length) return
+
   const patchById = {}
-  for (const id of ids) {
+  for (const id of unlockedIds) {
     const g = stage.findOne('#' + String(id))
     if (!g) continue
     patchById[id] = {
@@ -705,8 +885,8 @@ function movePan(clientX, clientY) {
   // calcular velocidad (px por frame aprox)
   const now = performance.now()
   const dt = Math.max(1, now - panLast.value.t)
-  const vx = (clientX - panLast.value.x) / dt * 16
-  const vy = (clientY - panLast.value.y) / dt * 16
+  const vx = ((clientX - panLast.value.x) / dt) * 16
+  const vy = ((clientY - panLast.value.y) / dt) * 16
   panVel.value = { vx, vy }
   panLast.value = { x: clientX, y: clientY, t: now }
 }
@@ -714,7 +894,7 @@ function movePan(clientX, clientY) {
 function endPan() {
   if (!panning.value) return
   panning.value = false
-  setCursor((spaceDown.value || panMode.value) ? 'grab' : 'default')
+  setCursor(spaceDown.value || panMode.value ? 'grab' : 'default')
 
   // si hay velocidad, aplica inercia
   const speed = Math.hypot(panVel.value.vx, panVel.value.vy)
@@ -916,20 +1096,41 @@ function onMenuAction(action) {
 
   if (action === 'paste') {
     store.endPasteSession()
-    store.pasteFromClipboard({ x: menu.value.canvas.x, y: menu.value.canvas.y, offset: 18, multi: false })
+    store.pasteFromClipboard({
+      x: menu.value.canvas.x,
+      y: menu.value.canvas.y,
+      offset: 18,
+      multi: false,
+    })
   }
 
   if (action === 'paste-multi') {
     store.endPasteSession()
-    store.pasteFromClipboard({ x: menu.value.canvas.x, y: menu.value.canvas.y, offset: 18, multi: true })
+    store.pasteFromClipboard({
+      x: menu.value.canvas.x,
+      y: menu.value.canvas.y,
+      offset: 18,
+      multi: true,
+    })
   }
 
   if (action === 'duplicate') store.duplicateSelected({ offset: 18 })
-  if (action === 'duplicate-5') store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
-
   if (action === 'group') store.groupSelection()
-  if (action === 'ungroup') store.ungroupSelection()
-  if (action === 'toggle-lock') store.toggleLockSelection()
+  if (action === 'ungroup') store.ungroupSelected()
+
+  if (action === 'toggle-lock') {
+    if (typeof store.toggleLockSelection === 'function') store.toggleLockSelection()
+    else {
+      const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+      for (const id of ids) store.toggleLock?.(id)
+    }
+  }
+
+  if (action === 'bring-forward') store.bringForwardSelected?.()
+  if (action === 'send-backward') store.sendBackwardSelected?.()
+  if (action === 'bring-front') store.bringToFrontSelected?.()
+  if (action === 'send-back') store.sendToBackSelected?.()
+
   if (action === 'delete') store.deleteSelected()
 }
 
@@ -949,7 +1150,10 @@ function onStageContextMenu(e) {
   if (!isBg && !isStage) {
     const group = target?.getParent?.()
     const id = group?.id?.() || target?.id?.()
-    if (id) store.select(String(id))
+    if (id) {
+      const model = store.nodes.find((n) => String(n.id) === String(id))
+      if (model && !model.locked) store.select(String(id))
+    }
   } else {
     store.clearSelection()
   }
@@ -970,72 +1174,94 @@ function isTypingTarget(e) {
 function onDocKeyDown(e) {
   if (isTypingTarget(e)) return
 
-  // ESC: salir de modo pegar
-  if (e.key === 'Escape') {
-    if (store.pasteSession?.active) store.endPasteSession()
-    closeMenu()
-    return
-  }
-
-  const isMac = navigator.platform.toLowerCase().includes('mac')
-  const mod = isMac ? e.metaKey : e.ctrlKey
-
-  // Delete
-  if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (store.selectedIds?.length) {
-      e.preventDefault()
-      store.deleteSelected()
-    }
-    return
-  }
-
-  if (mod) {
-    const k = String(e.key || '').toLowerCase()
-
-    if (k === 'c') {
-      e.preventDefault()
-      store.copySelected()
-      return
-    }
-
-    if (k === 'v') {
-      e.preventDefault()
-      // pega cerca del centro del viewport
-      const stage = getStage()
-      const cp = stage ? getCanvasPointer(stage) : null
-      const x = cp ? cp.x : 200
-      const y = cp ? cp.y : 200
-      store.pasteFromClipboard({ x, y, offset: 18, multi: !!e.shiftKey })
-      return
-    }
-
-    if (k === 'd') {
-      e.preventDefault()
-      if (e.shiftKey) store.duplicateSelectedMany({ count: 5, stepX: 18, stepY: 18 })
-      else store.duplicateSelected({ offset: 18 })
-      return
-    }
-
-    if (k === 'g') {
-      e.preventDefault()
-      if (e.shiftKey) store.ungroupSelection()
-      else store.groupSelection()
-      return
-    }
-
-    if (k === 'l') {
-      e.preventDefault()
-      store.toggleLockSelection()
-      return
-    }
-  }
-
+  // Pan con Space
   if (e.code === 'Space') {
     e.preventDefault()
     if (!spaceDown.value) {
       spaceDown.value = true
       setCursor('grab')
     }
+    return
+  }
+
+  // Esc: cerrar menú y salir de modo pegar
+  if (e.key === 'Escape') {
+    if (menu.value.show) closeMenu()
+    if (store.pasteSession?.active) store.endPasteSession()
+    return
+  }
+
+  // Delete: borrar selección
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if ((store.selectedIds?.length || 0) > 0) {
+      e.preventDefault()
+      store.deleteSelected()
+    }
+    return
+  }
+
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+  const mod = isMac ? !!e.metaKey : !!e.ctrlKey
+  if (!mod) return
+
+  const k = String(e.key || '').toLowerCase()
+  const stage = getStage()
+  const cp = stage ? getCanvasPointer(stage) : null
+  const pasteX = cp ? cp.x : 200
+  const pasteY = cp ? cp.y : 200
+
+  if (k === 'c') {
+    e.preventDefault()
+    store.copySelected()
+    return
+  }
+
+  if (k === 'v') {
+    e.preventDefault()
+    store.pasteFromClipboard({ x: pasteX, y: pasteY, offset: 18, multi: !!e.shiftKey })
+    return
+  }
+
+  if (k === 'd') {
+    e.preventDefault()
+    store.duplicateSelected({ offset: 18 })
+    return
+  }
+
+  if (k === 'g') {
+    e.preventDefault()
+    if (e.shiftKey) store.ungroupSelected()
+    else store.groupSelection()
+    return
+  }
+
+  // Z-Order
+  // Ctrl/Cmd + ]  -> bring forward
+  // Ctrl/Cmd + [  -> send backward
+  // Ctrl/Cmd + Shift + ] -> bring to front
+  // Ctrl/Cmd + Shift + [ -> send to back
+  if (k === ']' || k === '[') {
+    e.preventDefault()
+    if (k === ']') {
+      if (e.shiftKey) store.bringToFrontSelected?.()
+      else store.bringForwardSelected?.()
+    } else {
+      if (e.shiftKey) store.sendToBackSelected?.()
+      else store.sendBackwardSelected?.()
+    }
+    return
+  }
+
+  // Lock toggle (Ctrl/Cmd+L)
+  if (k === 'l') {
+    e.preventDefault()
+    if (typeof store.toggleLockSelection === 'function') {
+      store.toggleLockSelection()
+    } else {
+      const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+      for (const id of ids) store.toggleLock?.(id)
+    }
+    return
   }
 }
 
@@ -1062,11 +1288,10 @@ onMounted(() => {
   document.addEventListener('keydown', onDocKeyDown)
   document.addEventListener('keyup', onDocKeyUp)
 
-    nextTick(() => {
+  nextTick(() => {
     const stage = getStage()
     if (stage) store.setStage(stage)
   })
-
 })
 
 onBeforeUnmount(() => {
@@ -1107,24 +1332,5 @@ onBeforeUnmount(() => {
   border-radius: 999px;
   font-size: 0.75rem;
   z-index: 10;
-}
-
-.pan-toggle {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 20;
-  border: 1px solid rgba(0,0,0,.12);
-  background: rgba(255,255,255,.92);
-  border-radius: 12px;
-  padding: 6px 10px;
-  font-size: 0.85rem;
-  line-height: 1;
-  box-shadow: 0 6px 20px rgba(0,0,0,.08);
-}
-
-.pan-toggle.active {
-  border-color: rgba(13,110,253,.35);
-  box-shadow: 0 8px 24px rgba(13,110,253,.18);
 }
 </style>

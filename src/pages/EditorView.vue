@@ -7,22 +7,81 @@
     <div class="grid" @keydown="onKeyDown" tabindex="0" ref="wrap">
       <!-- Left column -->
       <div class="left">
-        <SidebarCatalog />
-        <PropertiesPanel />
-
-       
-
-        
+        <div class="left-tabs">
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: leftTab === 'catalog' }"
+            @click="leftTab = 'catalog'"
+          >
+            Catálogo
+          </button>
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: leftTab === 'layers' }"
+            @click="leftTab = 'layers'"
+          >
+            Capas
+          </button>
+        </div>
+        <div class="left-panels">
+          <div v-show="leftTab === 'catalog'" class="panel-stack">
+            <SidebarCatalog />
+          </div>
+          <div v-show="leftTab === 'layers'" class="panel-stack">
+            <LayerPanel />
+          </div>
+        </div>
       </div>
 
       <!-- Center -->
-      <CanvasStage />
+      <div class="center">
+        <CanvasStage />
+        <CanvasControls />
+      </div>
 
       <!-- Right column -->
       <div class="right">
-        <LayerPanel />
-         <AlignPanel />
-         <MaterialsPanel />
+        <div class="right-tabs">
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: activeTab === 'format' }"
+            @click="activeTab = 'format'"
+          >
+            Formato
+          </button>
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: activeTab === 'canvas' }"
+            @click="activeTab = 'canvas'"
+          >
+            Canvas
+          </button>
+          <button
+            class="tab-btn"
+            type="button"
+            :class="{ active: activeTab === 'calc' }"
+            @click="activeTab = 'calc'"
+          >
+            Calculador
+          </button>
+        </div>
+
+        <div class="right-panels">
+          <div v-show="activeTab === 'format'" class="panel-stack">
+            <PropertiesPanel />
+            <AlignPanel v-if="store.selectedIds?.length" />
+          </div>
+          <div v-show="activeTab === 'canvas'" class="panel-stack">
+            <CanvasSettingsPanel />
+          </div>
+          <div v-show="activeTab === 'calc'" class="panel-stack">
+            <MaterialsPanel />
+          </div>
+        </div>
       </div>
     </div>
   </EditorLayout>
@@ -36,18 +95,21 @@ import EditorLayout from '@/layouts/EditorLayout.vue'
 import ToolbarTop from '@/components/editor/ToolbarTop.vue'
 import SidebarCatalog from '@/components/editor/SidebarCatalog.vue'
 import CanvasStage from '@/components/editor/CanvasStage.vue'
+import CanvasControls from '@/components/editor/CanvasControls.vue'
 import LayerPanel from '@/components/editor/LayerPanel.vue'
 import PropertiesPanel from '@/components/editor/PropertiesPanel.vue'
-import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
 import AlignPanel from '@/components/editor/AlignPanel.vue'
+import CanvasSettingsPanel from '@/components/editor/CanvasSettingsPanel.vue'
+import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
 
 const store = useEditorStore()
 const wrap = ref(null)
+const activeTab = ref('format')
+const leftTab = ref('catalog')
 
 onMounted(() => {
   store.initAutosave()
   wrap.value?.focus?.()
-
 })
 
 onBeforeUnmount(() => {
@@ -104,7 +166,7 @@ function onKeyDown(e) {
     nudgeSelection(0, step)
     return
   }
-   // Undo / Redo (pro)
+  // Undo / Redo (pro)
   if (isCmd && key === 'z' && !e.shiftKey) {
     e.preventDefault()
     store.undo()
@@ -123,7 +185,6 @@ function onKeyDown(e) {
     store.redo()
     return
   }
-
 }
 
 function nudgeSelection(dx, dy) {
@@ -134,7 +195,7 @@ function nudgeSelection(dx, dy) {
   const s = Number(store.settings?.snapStep || 1)
 
   for (const id of ids) {
-    const n = store.nodes.find(x => x.id === id)
+    const n = store.nodes.find((x) => x.id === id)
     if (!n || n.locked) continue
 
     const nextX = Number(n.x || 0) + dx
@@ -163,6 +224,13 @@ function snap(v, step) {
   outline: none;
 }
 
+.center {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+
 .left {
   display: flex;
   flex-direction: column;
@@ -175,5 +243,57 @@ function snap(v, step) {
   flex-direction: column;
   gap: 12px;
   min-height: 0;
+}
+
+.right-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  background: #f5f7fb;
+  border-radius: 14px;
+  padding: 6px;
+}
+
+.tab-btn {
+  border: none;
+  background: transparent;
+  border-radius: 10px;
+  padding: 6px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #5c6370;
+}
+
+.tab-btn.active {
+  background: #12a4b7;
+  color: #fff;
+  box-shadow: 0 6px 12px -10px rgba(18, 164, 183, 0.6);
+}
+
+.right-panels {
+  overflow: auto;
+  min-height: 0;
+  display: block;
+}
+
+.panel-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.left-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  background: #f5f7fb;
+  border-radius: 14px;
+  padding: 6px;
+}
+
+.left-panels {
+  overflow: auto;
+  min-height: 0;
+  display: block;
 }
 </style>
