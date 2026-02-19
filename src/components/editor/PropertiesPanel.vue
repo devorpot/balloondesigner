@@ -25,6 +25,18 @@
       </div>
 
       <div v-else class="vstack gap-3" v-show="!collapsed">
+        <section class="props-section">
+          <div class="section-title">Nombre</div>
+          <input
+            type="text"
+            class="form-control form-control-sm"
+            v-model.trim="local.name"
+            @blur="commitName"
+            @keydown.enter.prevent="commitName"
+          />
+          <div class="text-muted small mt-1">Visible en Capas y Simbolos.</div>
+        </section>
+
         <section v-if="selectedGroup" class="props-section">
           <div class="section-title">Grupo</div>
           <div class="text-muted small">
@@ -473,6 +485,9 @@ const local = reactive({
   radiusY: 60,
   knot: true,
 
+  // nombre
+  name: '',
+
   // estado
   locked: false,
   visible: true,
@@ -563,6 +578,8 @@ function hydrate() {
 
   const m = selected.value.meta || {}
 
+  local.name = String(selected.value.name || '')
+
   local.typeId = selected.value.typeId || 'round-11'
   local.radiusX = num(m.radiusX, 46)
   local.radiusY = num(m.radiusY, 60)
@@ -595,6 +612,11 @@ function hydrate() {
     local.textAlign = String(m.align || 'left')
     local.textFill = String(m.fill || '#222222')
   }
+}
+
+function commitName() {
+  if (!selected.value) return
+  editor.updateNodeName?.(selected.value.id, local.name)
 }
 
 function commitField(field) {

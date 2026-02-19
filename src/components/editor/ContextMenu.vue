@@ -45,6 +45,44 @@
       </div>
     </div>
 
+    <div class="sep"></div>
+
+    <button
+      class="item"
+      type="button"
+      :disabled="!canCreateSymbol"
+      @click="emitAction('create-symbol')"
+    >
+      <span class="label"><i class="bi bi-stars"></i> Crear simbolo</span>
+    </button>
+
+    <button
+      class="item"
+      type="button"
+      :disabled="!canEditSymbol"
+      @click="emitAction('edit-symbol')"
+    >
+      <span class="label"><i class="bi bi-pen"></i> Editar simbolo</span>
+    </button>
+
+    <button
+      class="item"
+      type="button"
+      :disabled="!canExitSymbol"
+      @click="emitAction('exit-symbol')"
+    >
+      <span class="label"><i class="bi bi-box-arrow-left"></i> Salir de simbolo</span>
+    </button>
+
+    <button
+      class="item danger"
+      type="button"
+      :disabled="!canDetachSymbol"
+      @click="emitAction('detach-symbol')"
+    >
+      <span class="label"><i class="bi bi-unlink"></i> Desvincular simbolo</span>
+    </button>
+
     <button class="item" type="button" :disabled="!canCopy" @click="emitAction('toggle-lock')">
       <span class="label"><i class="bi bi-lock"></i> Bloquear</span>
       <span class="hint">Ctrl/Cmd+L</span>
@@ -102,6 +140,10 @@ defineProps({
   canPaste: { type: Boolean, default: false },
   canGroup: { type: Boolean, default: false },
   canUngroup: { type: Boolean, default: false },
+  canCreateSymbol: { type: Boolean, default: false },
+  canEditSymbol: { type: Boolean, default: false },
+  canExitSymbol: { type: Boolean, default: false },
+  canDetachSymbol: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['action', 'close'])
@@ -118,9 +160,10 @@ function emitAction(name) {
   z-index: 9999;
   width: 210px;
   border-radius: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1f2430;
+  color: #eef1f6;
+  box-shadow: 0 14px 28px rgba(10, 12, 16, 0.35);
   padding: 6px;
 }
 
@@ -135,29 +178,31 @@ function emitAction(name) {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  font-size: 0.8rem;
+  color: inherit;
 
   &:hover {
-    background: rgba(0, 0, 0, 0.05);
+    background: rgba(255, 255, 255, 0.08);
   }
 
   &:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
   }
 }
 
 .danger:hover {
-  background: rgba(220, 53, 69, 0.1);
+  background: rgba(220, 53, 69, 0.18);
 }
 
 .sep {
   height: 1px;
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.08);
   margin: 6px 0;
 }
 
 .hint {
-  font-size: 0.7rem;
-  color: rgba(0, 0, 0, 0.45);
+  font-size: 0.65rem;
+  color: rgba(255, 255, 255, 0.55);
   white-space: nowrap;
 }
 
@@ -177,9 +222,10 @@ function emitAction(name) {
   left: calc(100% + 6px);
   width: 210px;
   border-radius: 10px;
-  border: 1px solid rgba(0, 0, 0, 0.12);
-  background: #fff;
-  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #1f2430;
+  color: #eef1f6;
+  box-shadow: 0 14px 28px rgba(10, 12, 16, 0.35);
   padding: 6px;
   display: none;
 }

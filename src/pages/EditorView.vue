@@ -41,6 +41,7 @@
             <SidebarTemplates />
           </div>
           <div v-show="leftTab === 'layers'" class="panel-stack">
+            <SymbolsPanel />
             <LayerPanel />
           </div>
         </div>
@@ -119,6 +120,7 @@ import SidebarCatalog from '@/components/editor/SidebarCatalog.vue'
 import SidebarTemplates from '@/components/editor/SidebarTemplates.vue'
 import CanvasStage from '@/components/editor/CanvasStage.vue'
 import CanvasControls from '@/components/editor/CanvasControls.vue'
+import SymbolsPanel from '@/components/editor/SymbolsPanel.vue'
 import LayerPanel from '@/components/editor/LayerPanel.vue'
 import PropertiesPanel from '@/components/editor/PropertiesPanel.vue'
 import AlignPanel from '@/components/editor/AlignPanel.vue'
@@ -167,7 +169,7 @@ function onKeyDown(e) {
   }
 
   if ((key === 'delete' || key === 'backspace') && !isTypingTarget(e)) {
-    store.deleteSelected()
+    if ((store.selectedNodes?.length || 0) > 0) store.deleteSelected()
     return
   }
 
@@ -251,14 +253,13 @@ function onKeyDown(e) {
 }
 
 function nudgeSelection(dx, dy) {
-  const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
-  if (!ids.length) return
+  const selected = store.selectedNodes || []
+  if (!selected.length) return
 
   const snapOn = !!store.settings?.snap
   const s = Number(store.settings?.snapStep || 1)
 
-  for (const id of ids) {
-    const n = store.nodes.find((x) => x.id === id)
+  for (const n of selected) {
     if (!n || n.locked) continue
 
     const nextX = Number(n.x || 0) + dx

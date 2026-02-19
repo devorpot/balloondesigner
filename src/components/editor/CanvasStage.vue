@@ -16,6 +16,12 @@
           Editando grupo: <span class="fw-semibold">{{ groupEditGroup.name }}</span>
           <span class="text-muted">· Esc para salir</span>
         </div>
+        <div v-if="symbolEditActive" class="symbol-edit-hint">
+          Editando simbolo: <span class="fw-semibold">{{ symbolEditName }}</span>
+          <button class="btn btn-sm btn-light ms-2" type="button" @click="store.exitSymbolEdit()">
+            Salir
+          </button>
+        </div>
         <div v-if="toolbarVisible" class="float-toolbar" :style="toolbarStyle">
           <button
             class="btn btn-sm btn-light icon-btn"
@@ -79,9 +85,13 @@
           :show="menu.show"
           :pos="menu.pos"
           :canCopy="!!store.selectedId"
-          :canPaste="(store.clipboard?.nodes?.length || 0) > 0"
+          :canPaste="!symbolEditActive && (store.clipboard?.nodes?.length || 0) > 0"
           :canGroup="canGroup"
           :canUngroup="canUngroup"
+          :canCreateSymbol="canCreateSymbol"
+          :canEditSymbol="canEditSymbol"
+          :canExitSymbol="canExitSymbol"
+          :canDetachSymbol="canDetachSymbol"
           @action="onMenuAction"
           @close="closeMenu"
         />
@@ -141,30 +151,108 @@
             <v-line v-for="g in guidesLines" :key="g.key" :config="g.cfg" />
 
             <template v-for="node in renderNodes" :key="node.id">
-              <v-group
-                :config="groupConfig(node)"
-                @mousedown="onNodePointerDown(node, $event)"
-                @touchstart="onNodePointerDown(node, $event)"
-                @dragstart="onDragStart(node, $event)"
-                @dragmove="onDragMove(node, $event)"
-                @dragend="onDragEnd(node, $event)"
-                @transformend="onTransformEnd"
-                @dblclick="onNodeDoubleClick(node, $event)"
-                @dbltap="onNodeDoubleClick(node, $event)"
-              >
-                <template v-if="isTextNode(node)">
-                  <v-text :config="textConfig(node)" />
-                </template>
-                <template v-else-if="isImageNode(node)">
-                  <v-image :config="imageConfig(node)" />
-                </template>
-                <template v-else>
-                  <v-ellipse :config="ellipseConfig(node)" />
-                  <v-ellipse v-if="renderQuality !== 'low'" :config="innerShadeConfig(node)" />
-                  <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(node)" />
-                  <v-circle v-if="renderQuality === 'high'" :config="knotConfig(node)" />
-                </template>
-              </v-group>
+              <template v-if="isSymbolNode(node)">
+                <v-group
+                  :config="symbolInstanceConfig(node)"
+                  @mousedown="onNodePointerDown(node, $event)"
+                  @touchstart="onNodePointerDown(node, $event)"
+                  @dragstart="onDragStart(node, $event)"
+                  @dragmove="onDragMove(node, $event)"
+                  @dragend="onDragEnd(node, $event)"
+                  @dblclick="onSymbolInstanceDoubleClick(node, $event)"
+                  @dbltap="onSymbolInstanceDoubleClick(node, $event)"
+                >
+                  <template v-for="child in symbolNodesForInstance(node)" :key="child.id">
+                    <v-group
+                      :config="symbolChildGroupConfig(child, node.id)"
+                      @mousedown="onSymbolNodePointerDown(node, child, $event)"
+                      @touchstart="onSymbolNodePointerDown(node, child, $event)"
+                      @dragstart="onSymbolDragStart(node, child, $event)"
+                      @dragmove="onSymbolDragMove(node, $event)"
+                      @dragend="onSymbolDragEnd(node, $event)"
+                      @transformend="onSymbolTransformEnd(node)"
+                    >
+                      <template v-if="isTextNode(child)">
+                        <v-text :config="textConfig(child, { listening: true })" />
+                      </template>
+                      <template v-else-if="isImageNode(child)">
+                        <v-image :config="imageConfig(child, { listening: true })" />
+                      </template>
+                      <template v-else-if="isSymbolNode(child)">
+                        <v-group
+                          :config="nestedSymbolInstanceConfig(child)"
+                          @dblclick="onNestedSymbolDoubleClick(child, $event)"
+                          @dbltap="onNestedSymbolDoubleClick(child, $event)"
+                        >
+                          <template
+                            v-for="nested in symbolNodesForSymbolId(child.symbolId)"
+                            :key="nested.id"
+                          >
+                            <v-group :config="nestedSymbolChildConfig(nested)">
+                              <template v-if="isTextNode(nested)">
+                                <v-text :config="textConfig(nested, { listening: false })" />
+                              </template>
+                              <template v-else-if="isImageNode(nested)">
+                                <v-image :config="imageConfig(nested, { listening: false })" />
+                              </template>
+                              <template v-else>
+                                <v-ellipse :config="ellipseConfig(nested, { listening: false })" />
+                                <v-ellipse
+                                  v-if="renderQuality !== 'low'"
+                                  :config="innerShadeConfig(nested)"
+                                />
+                                <v-ellipse
+                                  v-if="renderQuality !== 'low'"
+                                  :config="shineConfig(nested)"
+                                />
+                                <v-circle
+                                  v-if="renderQuality === 'high'"
+                                  :config="knotConfig(nested)"
+                                />
+                              </template>
+                            </v-group>
+                          </template>
+                        </v-group>
+                      </template>
+                      <template v-else>
+                        <v-ellipse :config="ellipseConfig(child, { listening: true })" />
+                        <v-ellipse
+                          v-if="renderQuality !== 'low'"
+                          :config="innerShadeConfig(child)"
+                        />
+                        <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(child)" />
+                        <v-circle v-if="renderQuality === 'high'" :config="knotConfig(child)" />
+                      </template>
+                    </v-group>
+                  </template>
+                </v-group>
+              </template>
+              <template v-else>
+                <v-group
+                  :config="groupConfig(node)"
+                  @mousedown="onNodePointerDown(node, $event)"
+                  @touchstart="onNodePointerDown(node, $event)"
+                  @dragstart="onDragStart(node, $event)"
+                  @dragmove="onDragMove(node, $event)"
+                  @dragend="onDragEnd(node, $event)"
+                  @transformend="onTransformEnd"
+                  @dblclick="onNodeDoubleClick(node, $event)"
+                  @dbltap="onNodeDoubleClick(node, $event)"
+                >
+                  <template v-if="isTextNode(node)">
+                    <v-text :config="textConfig(node)" />
+                  </template>
+                  <template v-else-if="isImageNode(node)">
+                    <v-image :config="imageConfig(node)" />
+                  </template>
+                  <template v-else>
+                    <v-ellipse :config="ellipseConfig(node)" />
+                    <v-ellipse v-if="renderQuality !== 'low'" :config="innerShadeConfig(node)" />
+                    <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(node)" />
+                    <v-circle v-if="renderQuality === 'high'" :config="knotConfig(node)" />
+                  </template>
+                </v-group>
+              </template>
             </template>
 
             <v-rect v-if="marquee.active" :config="marqueeRectConfig" />
@@ -186,16 +274,43 @@ import ContextMenu from '@/components/editor/ContextMenu.vue'
 const store = useEditorStore()
 const catalog = useCatalogStore()
 
+const symbolEdit = computed(() => store.ui?.symbolEdit || { active: false })
+const symbolEditActive = computed(() => !!symbolEdit.value?.active)
+const activeSymbolInstanceId = computed(() => symbolEdit.value?.instanceId || null)
+const symbolsById = computed(() => new Map((store.symbols || []).map((s) => [String(s.id), s])))
+const symbolEditName = computed(() => {
+  if (!symbolEditActive.value) return ''
+  const symbol = (store.symbols || []).find(
+    (s) => String(s.id) === String(symbolEdit.value?.symbolId),
+  )
+  return symbol?.name || 'Simbolo'
+})
+
 const canGroup = computed(() => {
+  if (symbolEditActive.value) return false
   const sel = store.selectedNodes || []
   const unlocked = sel.filter((n) => !n.locked)
   return unlocked.length >= 2
 })
 
 const canUngroup = computed(() => {
+  if (symbolEditActive.value) return false
   const sel = store.selectedNodes || []
   return sel.some((n) => !!n.groupId)
 })
+
+const canCreateSymbol = computed(() => {
+  const sel = store.selectedNodes || []
+  if (sel.length < 2) return false
+  return sel.every((n) => !n?.meta?.guide)
+})
+const canEditSymbol = computed(
+  () => !symbolEditActive.value && store.selectedNode?.kind === 'symbol',
+)
+const canDetachSymbol = computed(
+  () => !symbolEditActive.value && store.selectedNode?.kind === 'symbol',
+)
+const canExitSymbol = computed(() => symbolEditActive.value)
 
 const groupEditMode = computed(() => !!store.ui?.groupEditMode)
 const groupEditGroup = computed(() => {
@@ -431,9 +546,56 @@ function groupConfig(n) {
     rotation: n.rotation,
     scaleX: n.scaleX,
     scaleY: n.scaleY,
-    opacity: n.opacity,
+    opacity: baseOpacity(n.opacity) * dimFactorForNode(n),
     draggable: !n.locked && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
     listening: !n?.meta?.guide,
+  }
+}
+
+function symbolInstanceConfig(n) {
+  return {
+    id: n.id,
+    x: n.x,
+    y: n.y,
+    rotation: n.rotation,
+    scaleX: n.scaleX,
+    scaleY: n.scaleY,
+    opacity: baseOpacity(n.opacity) * dimFactorForNode(n),
+    draggable:
+      !symbolEditActive.value && !n.locked && !panning.value && !panMode.value && !spaceDown.value,
+    listening: !n?.meta?.guide,
+  }
+}
+
+function symbolChildId(instanceId, childId) {
+  return `symbol-${instanceId}-${childId}`
+}
+
+function parseSymbolChildId(id) {
+  if (typeof id !== 'string' || !id.startsWith('symbol-')) return null
+  const raw = id.slice('symbol-'.length)
+  const splitIndex = raw.indexOf('-')
+  if (splitIndex <= 0) return null
+  return {
+    instanceId: raw.slice(0, splitIndex),
+    childId: raw.slice(splitIndex + 1),
+  }
+}
+
+function symbolChildGroupConfig(child, instanceId) {
+  const active =
+    symbolEditActive.value && String(instanceId) === String(activeSymbolInstanceId.value)
+  return {
+    id: symbolChildId(instanceId, child.id),
+    x: child.x,
+    y: child.y,
+    rotation: child.rotation,
+    scaleX: child.scaleX,
+    scaleY: child.scaleY,
+    opacity: child.opacity,
+    visible: child.visible !== false,
+    draggable: active && !child.locked && !panning.value && !panMode.value && !spaceDown.value,
+    listening: !child?.meta?.guide,
   }
 }
 
@@ -445,7 +607,15 @@ function isImageNode(n) {
   return n?.kind === 'image'
 }
 
-function ellipseConfig(n) {
+function isSymbolNode(n) {
+  return n?.kind === 'symbol'
+}
+
+function isActiveSymbolInstance(n) {
+  return symbolEditActive.value && String(n?.id) === String(activeSymbolInstanceId.value)
+}
+
+function ellipseConfig(n, { listening = true } = {}) {
   const rx = Number(n?.meta?.radiusX ?? 46)
   const ry = Number(n?.meta?.radiusY ?? 60)
 
@@ -458,12 +628,12 @@ function ellipseConfig(n) {
     stroke: 'rgba(0,0,0,.10)',
     strokeWidth: 1,
     hitStrokeWidth: 0,
-    listening: true,
+    listening,
     perfectDrawEnabled: false,
   }
 }
 
-function textConfig(n) {
+function textConfig(n, { listening = false } = {}) {
   const meta = n?.meta || {}
   const fontSize = Number(meta.fontSize || 24)
   return {
@@ -475,13 +645,13 @@ function textConfig(n) {
     fill: String(meta.fill || n.color || '#222222'),
     align: String(meta.align || 'left'),
     width: Number.isFinite(Number(meta.width)) ? Number(meta.width) : 220,
-    listening: false,
+    listening,
   }
 }
 
 const imageCache = new Map()
 
-function imageConfig(n) {
+function imageConfig(n, { listening = false } = {}) {
   const meta = n?.meta || {}
   const src = String(meta.src || '')
   if (src && !imageCache.has(src)) {
@@ -500,7 +670,45 @@ function imageConfig(n) {
     image: img || null,
     width,
     height,
+    listening,
+  }
+}
+
+function symbolNodesForInstance(n) {
+  const symbol = symbolsById.value.get(String(n?.symbolId))
+  if (!symbol || !Array.isArray(symbol.nodes)) return []
+  return symbol.nodes
+}
+
+function symbolNodesForSymbolId(symbolId) {
+  const symbol = symbolsById.value.get(String(symbolId))
+  if (!symbol || !Array.isArray(symbol.nodes)) return []
+  return symbol.nodes
+}
+
+function nestedSymbolChildConfig(child) {
+  return {
+    id: `nested-${child.id}-${child.symbolId || 'node'}`,
+    x: child.x,
+    y: child.y,
+    rotation: child.rotation,
+    scaleX: child.scaleX,
+    scaleY: child.scaleY,
+    opacity: child.opacity,
     listening: false,
+  }
+}
+
+function nestedSymbolInstanceConfig(child) {
+  return {
+    id: `nested-instance-${child.id}`,
+    x: child.x,
+    y: child.y,
+    rotation: child.rotation,
+    scaleX: child.scaleX,
+    scaleY: child.scaleY,
+    opacity: child.opacity,
+    listening: true,
   }
 }
 
@@ -615,7 +823,81 @@ function getTolerance() {
   return Number.isFinite(t) && t >= 0 ? t : 8
 }
 
+function baseOpacity(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 1
+}
+
+function dimFactorForNode(n) {
+  if (symbolEditActive.value) {
+    if (n?.kind === 'symbol') {
+      return String(n.id) === String(activeSymbolInstanceId.value) ? 1 : 0.2
+    }
+    return 0.15
+  }
+
+  if (groupEditMode.value && store.selectedGroupId) {
+    const same = n?.groupId && String(n.groupId) === String(store.selectedGroupId)
+    return same ? 1 : 0.25
+  }
+
+  return 1
+}
+
+function symbolBounds(symbol, depth = 0) {
+  const nodes = Array.isArray(symbol?.nodes) ? symbol.nodes : []
+  if (!nodes.length) {
+    return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes) {
+    let box = null
+    if (n?.kind === 'symbol' && depth < 4) {
+      const nested = symbolsById.value.get(String(n.symbolId))
+      if (nested) {
+        const nestedBounds = symbolBounds(nested, depth + 1)
+        const sx = Math.abs(Number(n.scaleX ?? 1))
+        const sy = Math.abs(Number(n.scaleY ?? 1))
+        const left = Number(n.x || 0) + nestedBounds.left * sx
+        const right = Number(n.x || 0) + nestedBounds.right * sx
+        const top = Number(n.y || 0) + nestedBounds.top * sy
+        const bottom = Number(n.y || 0) + nestedBounds.bottom * sy
+        box = { x: left, y: top, width: right - left, height: bottom - top }
+      }
+    }
+
+    if (!box) box = nodeBoundingBox(n)
+    minX = Math.min(minX, box.x)
+    minY = Math.min(minY, box.y)
+    maxX = Math.max(maxX, box.x + box.width)
+    maxY = Math.max(maxY, box.y + box.height)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  }
+  return {
+    left: minX,
+    right: maxX,
+    top: minY,
+    bottom: maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  }
+}
+
 function nodeHalfSize(n) {
+  if (isSymbolNode(n)) {
+    const symbol = symbolsById.value.get(String(n.symbolId))
+    if (!symbol) return { rx: 0, ry: 0 }
+    const bounds = symbolBounds(symbol)
+    const sx = Math.abs(Number(n?.scaleX ?? 1))
+    const sy = Math.abs(Number(n?.scaleY ?? 1))
+    return { rx: (bounds.width / 2) * sx, ry: (bounds.height / 2) * sy }
+  }
+
   if (isImageNode(n)) {
     const width = Number(n?.meta?.width || 160)
     const height = Number(n?.meta?.height || 120)
@@ -911,6 +1193,7 @@ function onStagePointerLeave() {
 
 /* ================== SELECTION ================== */
 function onNodePointerDown(node, e) {
+  if (symbolEditActive.value) return
   // si estamos en pan, no seleccionar
   if (panning.value || panMode.value || spaceDown.value) return
 
@@ -946,10 +1229,42 @@ function onNodePointerDown(node, e) {
   closeMenu()
 }
 
+function onSymbolNodePointerDown(instance, node, e) {
+  if (!symbolEditActive.value) {
+    if (instance?.kind === 'symbol') store.select(instance.id, { append: false })
+    closeMenu()
+    return
+  }
+  if (!isActiveSymbolInstance(instance)) return
+  if (node?.locked) return
+  if (node?.meta?.guide) return
+
+  if (e?.cancelBubble !== undefined) e.cancelBubble = true
+  if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
+
+  const evt = e?.evt
+  const isMac = navigator.platform.toLowerCase().includes('mac')
+  const mod = isMac ? !!evt?.metaKey : !!evt?.ctrlKey
+  const append = !!evt?.shiftKey
+
+  if (mod || append) {
+    store.toggleSelectSymbolNode(node.id)
+    closeMenu()
+    return
+  }
+
+  store.selectSymbolNode(node.id, { append: false })
+  closeMenu()
+}
+
 /* ================== TRANSFORMER ================== */
+const activeSelectionIds = computed(() =>
+  symbolEditActive.value ? store.ui?.symbolEdit?.selectedIds || [] : store.selectedIds || [],
+)
+
 watch(
-  () => store.selectedIds,
-  async (ids) => {
+  () => [activeSelectionIds.value, symbolEditActive.value, activeSymbolInstanceId.value],
+  async ([ids]) => {
     await nextTick()
     const stage = getStage()
     const tr = getTransformer()
@@ -963,10 +1278,21 @@ watch(
     }
 
     const konvaNodes = []
-    for (const id of list) {
-      const n = stage.findOne('#' + String(id))
-      const model = store.nodes.find((x) => x.id === id)
-      if (n && model && !model.locked && !model?.meta?.guide) konvaNodes.push(n)
+    if (symbolEditActive.value) {
+      const symbol = symbolsById.value.get(String(symbolEdit.value.symbolId))
+      const nodeById = new Map((symbol?.nodes || []).map((n) => [String(n.id), n]))
+      for (const id of list) {
+        const model = nodeById.get(String(id))
+        if (!model || model.locked || model?.meta?.guide) continue
+        const n = stage.findOne('#' + symbolChildId(activeSymbolInstanceId.value, id))
+        if (n) konvaNodes.push(n)
+      }
+    } else {
+      for (const id of list) {
+        const n = stage.findOne('#' + String(id))
+        const model = store.nodes.find((x) => x.id === id)
+        if (n && model && !model.locked && !model?.meta?.guide) konvaNodes.push(n)
+      }
     }
 
     // si alguno está locked, lo ignoramos (intocable) y dejamos anchors normales
@@ -983,7 +1309,12 @@ let dragSession = null
 let dragRaf = null
 let pendingDrag = null
 
+let symbolDragSession = null
+let symbolDragRaf = null
+let pendingSymbolDrag = null
+
 function onDragStart(node, e) {
+  if (symbolEditActive.value) return
   // si panMode está activo, no arrastrar nodos
   if (panMode.value || spaceDown.value || panning.value) {
     if (e?.cancelBubble) e.cancelBubble = true
@@ -1126,7 +1457,107 @@ function onDragEnd(node, e) {
   }
 }
 
+function onSymbolDragStart(instance, node, e) {
+  if (!symbolEditActive.value || !isActiveSymbolInstance(instance)) return
+  if (node?.locked || node?.meta?.guide) return
+  const t = e.target
+  if (!t) return
+
+  const selected = Array.isArray(store.ui?.symbolEdit?.selectedIds)
+    ? store.ui.symbolEdit.selectedIds
+    : []
+  if (!selected.includes(node.id)) store.selectSymbolNode(node.id, { append: false })
+
+  const ids = Array.isArray(store.ui?.symbolEdit?.selectedIds)
+    ? store.ui.symbolEdit.selectedIds
+    : []
+
+  symbolDragSession = {
+    instanceId: instance.id,
+    anchorId: node.id,
+    startAnchor: { x: t.x(), y: t.y() },
+    ids,
+    startPos: new Map(),
+  }
+
+  const stage = getStage()
+  if (stage) {
+    for (const id of ids) {
+      const g = stage.findOne('#' + symbolChildId(instance.id, id))
+      if (g) symbolDragSession.startPos.set(id, { x: g.x(), y: g.y() })
+    }
+  }
+
+  store.beginHistoryBatch()
+}
+
+function onSymbolDragMove(instance, e) {
+  if (!symbolDragSession || !symbolEditActive.value) return
+  pendingSymbolDrag = { instance, e }
+  if (!symbolDragRaf) {
+    symbolDragRaf = requestAnimationFrame(() => {
+      const payload = pendingSymbolDrag
+      pendingSymbolDrag = null
+      symbolDragRaf = null
+      if (payload) handleSymbolDragMove(payload.instance, payload.e)
+    })
+  }
+}
+
+function handleSymbolDragMove(instance, e) {
+  if (!symbolDragSession || !symbolEditActive.value) return
+  const t = e.target
+  if (!t) return
+
+  const stage = getStage()
+  if (!stage) return
+
+  const startA = symbolDragSession.startAnchor
+  const dx = t.x() - startA.x
+  const dy = t.y() - startA.y
+
+  for (const id of symbolDragSession.ids) {
+    const start = symbolDragSession.startPos.get(id)
+    if (!start) continue
+    const g = stage.findOne('#' + symbolChildId(instance.id, id))
+    if (!g) continue
+    g.position({ x: start.x + dx, y: start.y + dy })
+  }
+
+  stage.batchDraw()
+}
+
+function onSymbolDragEnd(instance, e) {
+  if (symbolDragRaf) cancelAnimationFrame(symbolDragRaf)
+  symbolDragRaf = null
+  pendingSymbolDrag = null
+
+  const stage = getStage()
+  if (!symbolDragSession || !stage || !symbolEditActive.value) {
+    symbolDragSession = null
+    store.endHistoryBatch()
+    return
+  }
+
+  try {
+    const patchById = {}
+    for (const id of symbolDragSession.ids) {
+      const g = stage.findOne('#' + symbolChildId(instance.id, id))
+      if (!g) continue
+      patchById[id] = { x: g.x(), y: g.y() }
+    }
+
+    if (Object.keys(patchById).length) {
+      store.updateSymbolNodes(symbolEdit.value.symbolId, patchById)
+    }
+  } finally {
+    symbolDragSession = null
+    store.endHistoryBatch()
+  }
+}
+
 function onTransformEnd() {
+  if (symbolEditActive.value) return
   const stage = getStage()
   if (!stage) return
 
@@ -1156,6 +1587,38 @@ function onTransformEnd() {
   if (Object.keys(patchById).length) store.updateNodes(patchById)
 }
 
+function onSymbolTransformEnd(instance) {
+  if (!symbolEditActive.value || !isActiveSymbolInstance(instance)) return
+  const stage = getStage()
+  if (!stage) return
+
+  const ids = Array.isArray(store.ui?.symbolEdit?.selectedIds)
+    ? store.ui.symbolEdit.selectedIds
+    : []
+  if (!ids.length) return
+
+  const symbol = symbolsById.value.get(String(symbolEdit.value.symbolId))
+  if (!symbol) return
+
+  const nodeById = new Map((symbol.nodes || []).map((n) => [String(n.id), n]))
+  const patchById = {}
+  for (const id of ids) {
+    const model = nodeById.get(String(id))
+    if (!model || model.locked || model?.meta?.guide) continue
+    const g = stage.findOne('#' + symbolChildId(instance.id, id))
+    if (!g) continue
+    patchById[id] = {
+      x: g.x(),
+      y: g.y(),
+      scaleX: g.scaleX(),
+      scaleY: g.scaleY(),
+      rotation: g.rotation(),
+    }
+  }
+
+  if (Object.keys(patchById).length) store.updateSymbolNodes(symbol.id, patchById)
+}
+
 /* ================== CLICK EMPTY ================== */
 function onStageClick(e) {
   const stage = getStage()
@@ -1183,6 +1646,10 @@ function onStageClick(e) {
 
   if (clickedOnStage || clickedOnBg) {
     clearGuides()
+    if (symbolEditActive.value) {
+      store.clearSymbolSelection()
+      return
+    }
     if (!groupEditMode.value) store.clearSelection()
   }
 }
@@ -1194,7 +1661,27 @@ function onNodeDoubleClick(node, e) {
   store.setGroupEditMode({ enabled: true, groupId: node.groupId })
 }
 
+function onSymbolInstanceDoubleClick(node, e) {
+  if (symbolEditActive.value) return
+  if (!node || node.kind !== 'symbol') return
+  if (e?.cancelBubble !== undefined) e.cancelBubble = true
+  if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
+  store.enterSymbolEdit(node.id)
+}
+
+function onNestedSymbolDoubleClick(child, e) {
+  if (!symbolEditActive.value) return
+  if (!child || child.kind !== 'symbol') return
+  if (e?.cancelBubble !== undefined) e.cancelBubble = true
+  if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
+  store.enterNestedSymbolEdit?.(child.id)
+}
+
 function onStageDoubleClick() {
+  if (symbolEditActive.value) {
+    store.exitSymbolEdit({ selectInstance: true })
+    return
+  }
   if (!groupEditMode.value) return
   store.setGroupEditMode({ enabled: false })
 }
@@ -1550,6 +2037,11 @@ function onMenuAction(action) {
   if (action === 'bring-front') store.bringToFrontSelected?.()
   if (action === 'send-back') store.sendToBackSelected?.()
 
+  if (action === 'create-symbol') store.createSymbolFromSelection?.()
+  if (action === 'edit-symbol' && store.selectedId) store.enterSymbolEdit?.(store.selectedId)
+  if (action === 'exit-symbol') store.exitSymbolEdit?.({ selectInstance: true })
+  if (action === 'detach-symbol' && store.selectedId) store.detachSymbolInstance?.(store.selectedId)
+
   if (action === 'delete') store.deleteSelected()
 }
 
@@ -1566,10 +2058,33 @@ function onStageContextMenu(e) {
   const isBg = typeof target?.hasName === 'function' && target.hasName('bg')
   const isStage = target === stage
 
+  if (symbolEditActive.value) {
+    if (!isBg && !isStage) {
+      const group = target?.getParent?.()
+      const id = group?.id?.() || target?.id?.()
+      const parsed = parseSymbolChildId(id)
+      if (parsed && String(parsed.instanceId) === String(activeSymbolInstanceId.value)) {
+        store.selectSymbolNode(parsed.childId, { append: false })
+      }
+    } else {
+      store.clearSymbolSelection()
+    }
+
+    const cp = getCanvasPointer(stage)
+    if (!cp) return
+    openMenu(e.evt.clientX, e.evt.clientY, cp.x, cp.y)
+    return
+  }
+
   if (!isBg && !isStage) {
     const group = target?.getParent?.()
     const id = group?.id?.() || target?.id?.()
     if (id) {
+      const parsed = parseSymbolChildId(id)
+      if (parsed) {
+        store.select(parsed.instanceId)
+        return
+      }
       const model = store.nodes.find((n) => String(n.id) === String(id))
       if (
         model &&
@@ -1643,12 +2158,16 @@ function onDocKeyDown(e) {
   if (e.key === 'Escape') {
     if (menu.value.show) closeMenu()
     if (store.pasteSession?.active) store.endPasteSession()
+    if (symbolEditActive.value) store.exitSymbolEdit({ selectInstance: true })
     return
   }
 
   // Delete: borrar selección
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if ((store.selectedIds?.length || 0) > 0) {
+    const hasSelection = symbolEditActive.value
+      ? (store.ui?.symbolEdit?.selectedIds?.length || 0) > 0
+      : (store.selectedIds?.length || 0) > 0
+    if (hasSelection) {
       e.preventDefault()
       store.deleteSelected()
     }
@@ -1814,6 +2333,27 @@ onBeforeUnmount(() => {
   font-size: 0.72rem;
   font-weight: 600;
   z-index: 10;
+}
+
+.symbol-edit-hint {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  background: rgba(17, 24, 39, 0.92);
+  color: #f8fafc;
+  padding: 6px 10px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.symbol-edit-hint .btn {
+  padding: 2px 8px;
+  font-size: 0.7rem;
 }
 
 .float-toolbar {

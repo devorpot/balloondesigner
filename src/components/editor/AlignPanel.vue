@@ -114,7 +114,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useEditorStore } from '@/stores/editor.store'
 
 const store = useEditorStore()
-const selectedCount = computed(() => store.selectedIds.length)
+const selectedCount = computed(() => store.selectedNodes.length)
 const collapsed = ref(false)
 const lastAlign = ref('')
 const lastDistribute = ref('')

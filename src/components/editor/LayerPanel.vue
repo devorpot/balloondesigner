@@ -20,116 +20,355 @@
         No hay elementos.
       </div>
 
-      <div v-else v-show="!collapsed" ref="listEl" class="list">
+      <div
+        v-else
+        v-show="!collapsed"
+        ref="listEl"
+        class="list"
+        tabindex="0"
+        @keydown="onListKeyDown"
+        @click="listEl?.focus?.()"
+      >
         <!-- Top-level rows (draggables) -->
-        <div
-          v-for="row in rows"
-          :key="row.key"
-          class="row-item"
-          :class="{ active: row.active }"
-          :data-id="row.dataId"
-          :data-type="row.type"
-        >
-          <!-- Row main button (selection) -->
-          <button class="row-main" type="button" @click="onRowClick(row)">
-            <template v-if="row.type === 'group'">
+        <template v-for="row in rows" :key="row.key">
+          <div
+            class="row-item"
+            :class="{ active: row.active }"
+            :data-id="row.dataId"
+            :data-type="row.type"
+          >
+            <!-- Row main button (selection) -->
+            <button class="row-main" type="button" @click="onRowClick(row)">
+              <template v-if="row.type === 'group'">
+                <button
+                  class="chev-btn"
+                  type="button"
+                  @click.stop="toggleGroup(row.groupId)"
+                  :title="isGroupOpen(row.groupId) ? 'Contraer' : 'Expandir'"
+                >
+                  <i
+                    class="bi"
+                    :class="isGroupOpen(row.groupId) ? 'bi-caret-down-fill' : 'bi-caret-right-fill'"
+                  ></i>
+                </button>
+
+                <span class="dot dot-group"></span>
+
+                <div class="flex-grow-1 minw0">
+                  <div class="fw-semibold text-truncate">
+                    <template v-if="editing.type === 'group' && editing.id === String(row.groupId)">
+                      <input
+                        :data-edit-id="`group-${row.groupId}`"
+                        v-model="editingValue"
+                        class="form-control form-control-sm"
+                        type="text"
+                        @keydown.enter.prevent="commitEdit(true)"
+                        @keydown.esc.prevent="cancelEdit"
+                        @blur="commitEdit"
+                      />
+                    </template>
+                    <template v-else>
+                      <span @dblclick.stop="startEdit('group', row.groupId, row.name)">{{
+                        row.name
+                      }}</span>
+                      <span class="text-muted small">· {{ row.childCount }}</span>
+                    </template>
+                  </div>
+                  <div class="text-muted small text-truncate">
+                    {{ row.lockedInfo }} · {{ row.visibleInfo }}
+                  </div>
+                </div>
+              </template>
+
+              <template v-else-if="row.type === 'symbol'">
+                <button
+                  class="chev-btn"
+                  type="button"
+                  @click.stop="toggleSymbol(row.id)"
+                  :title="isSymbolOpen(row.id) ? 'Contraer' : 'Expandir'"
+                >
+                  <i
+                    class="bi"
+                    :class="isSymbolOpen(row.id) ? 'bi-caret-down-fill' : 'bi-caret-right-fill'"
+                  ></i>
+                </button>
+
+                <span class="dot dot-symbol"></span>
+
+                <div class="flex-grow-1 minw0">
+                  <div class="fw-semibold text-truncate">
+                    <template v-if="editing.type === 'symbol' && editing.id === String(row.id)">
+                      <input
+                        :data-edit-id="`symbol-${row.id}`"
+                        v-model="editingValue"
+                        class="form-control form-control-sm"
+                        type="text"
+                        @keydown.enter.prevent="commitEdit(true)"
+                        @keydown.esc.prevent="cancelEdit"
+                        @blur="commitEdit"
+                      />
+                    </template>
+                    <template v-else>
+                      <i class="bi me-1" :class="iconForKind('symbol')"></i>
+                      <span @dblclick.stop="startEdit('symbol', row.id, row.name)">{{
+                        row.name
+                      }}</span>
+                      <span class="text-muted small">· {{ row.childCount }}</span>
+                    </template>
+                  </div>
+                  <div class="text-muted small text-truncate">
+                    {{ row.lockedInfo }} · {{ row.visibleInfo }}
+                  </div>
+                </div>
+              </template>
+
+              <template v-else>
+                <span class="dot" :style="{ background: row.color }"></span>
+
+                <div class="flex-grow-1 minw0">
+                  <div class="fw-semibold text-truncate">
+                    <template v-if="editing.type === 'node' && editing.id === String(row.id)">
+                      <input
+                        :data-edit-id="`node-${row.id}`"
+                        v-model="editingValue"
+                        class="form-control form-control-sm"
+                        type="text"
+                        @keydown.enter.prevent="commitEdit(true)"
+                        @keydown.esc.prevent="cancelEdit"
+                        @blur="commitEdit"
+                      />
+                    </template>
+                    <template v-else>
+                      <i class="bi me-1" :class="iconForKind(row.kind)"></i>
+                      <span @dblclick.stop="startEdit('node', row.id, row.name)">{{
+                        row.name
+                      }}</span>
+                    </template>
+                  </div>
+                  <div class="text-muted small text-truncate">
+                    x:{{ round1(row.x) }} y:{{ round1(row.y) }}
+                  </div>
+                </div>
+              </template>
+            </button>
+
+            <!-- Actions -->
+            <button
+              class="icon-btn"
+              type="button"
+              @click.stop="toggleVisibleRow(row)"
+              :title="row.type === 'group' ? 'Mostrar/ocultar grupo' : 'Mostrar/ocultar'"
+            >
+              <i class="bi" :class="row.visible ? 'bi-eye' : 'bi-eye-slash'"></i>
+            </button>
+
+            <button
+              class="icon-btn"
+              type="button"
+              @click.stop="toggleLockRow(row)"
+              :title="row.type === 'group' ? 'Bloquear/desbloquear grupo' : 'Bloquear/desbloquear'"
+            >
+              <i class="bi" :class="row.locked ? 'bi-lock-fill' : 'bi-unlock'"></i>
+            </button>
+
+            <button
+              class="icon-btn"
+              type="button"
+              title="Renombrar"
+              @click.stop="
+                startEdit(row.type, row.type === 'group' ? row.groupId : row.id, row.name)
+              "
+            >
+              <i class="bi bi-pencil"></i>
+            </button>
+          </div>
+
+          <!-- Group children (inline) -->
+          <div v-if="row.type === 'group' && isGroupOpen(row.groupId)" class="group-children">
+            <template v-for="child in row.children" :key="child.key">
               <button
-                class="chev-btn"
+                v-if="child.type !== 'symbol'"
+                class="child-item"
+                :class="{ active: child.id === store.selectedId }"
                 type="button"
-                @click.stop="toggleGroup(row.groupId)"
-                :title="isGroupOpen(row.groupId) ? 'Contraer' : 'Expandir'"
+                :data-id="String(child.id)"
+                :data-group="String(row.groupId)"
+                @click="store.select(child.id)"
               >
-                <i
-                  class="bi"
-                  :class="isGroupOpen(row.groupId) ? 'bi-caret-down-fill' : 'bi-caret-right-fill'"
-                ></i>
+                <span class="dot dot-child" :style="{ background: child.color }"></span>
+
+                <div class="flex-grow-1 minw0">
+                  <div class="fw-semibold text-truncate">
+                    <template v-if="editing.type === 'node' && editing.id === String(child.id)">
+                      <input
+                        :data-edit-id="`node-${child.id}`"
+                        v-model="editingValue"
+                        class="form-control form-control-sm"
+                        type="text"
+                        @keydown.enter.prevent="commitEdit(true)"
+                        @keydown.esc.prevent="cancelEdit"
+                        @blur="commitEdit"
+                      />
+                    </template>
+                    <template v-else>
+                      <i class="bi me-1" :class="iconForKind(child.kind)"></i>
+                      <span @dblclick.stop="startEdit('node', child.id, child.name)">{{
+                        child.name
+                      }}</span>
+                    </template>
+                  </div>
+                  <div class="text-muted small text-truncate">
+                    x:{{ round1(child.x) }} y:{{ round1(child.y) }}
+                  </div>
+                </div>
+
+                <button
+                  class="icon-btn icon-btn-sm"
+                  type="button"
+                  @click.stop="store.toggleVisible(child.id)"
+                >
+                  <i class="bi" :class="child.visible ? 'bi-eye' : 'bi-eye-slash'"></i>
+                </button>
+
+                <button
+                  class="icon-btn icon-btn-sm"
+                  type="button"
+                  @click.stop="store.toggleLock(child.id)"
+                >
+                  <i class="bi" :class="child.locked ? 'bi-lock-fill' : 'bi-unlock'"></i>
+                </button>
               </button>
 
-              <span class="dot dot-group"></span>
+              <div v-else class="symbol-child">
+                <button
+                  class="child-item"
+                  :class="{ active: child.id === store.selectedId }"
+                  type="button"
+                  @click="onSymbolRowClick(child)"
+                >
+                  <button
+                    class="chev-btn"
+                    type="button"
+                    @click.stop="toggleSymbol(child.id)"
+                    :title="isSymbolOpen(child.id) ? 'Contraer' : 'Expandir'"
+                  >
+                    <i
+                      class="bi"
+                      :class="isSymbolOpen(child.id) ? 'bi-caret-down-fill' : 'bi-caret-right-fill'"
+                    ></i>
+                  </button>
+                  <span class="dot dot-symbol"></span>
+                  <div class="flex-grow-1 minw0">
+                    <div class="fw-semibold text-truncate">
+                      <i class="bi me-1" :class="iconForKind('symbol')"></i>
+                      <span @dblclick.stop="startEdit('symbol', child.id, child.name)">{{
+                        child.name
+                      }}</span>
+                      <span class="text-muted small">· {{ child.childCount }}</span>
+                    </div>
+                    <div class="text-muted small text-truncate">
+                      x:{{ round1(child.x) }} y:{{ round1(child.y) }}
+                    </div>
+                  </div>
+                </button>
 
-              <div class="flex-grow-1 minw0">
-                <div class="fw-semibold text-truncate">
-                  {{ row.name }}
-                  <span class="text-muted small">· {{ row.childCount }}</span>
-                </div>
-                <div class="text-muted small text-truncate">
-                  {{ row.lockedInfo }} · {{ row.visibleInfo }}
+                <div v-if="isSymbolOpen(child.id)" class="symbol-children">
+                  <button
+                    v-for="symbolChild in child.children"
+                    :key="symbolChild.id"
+                    class="child-item child-symbol"
+                    type="button"
+                    @click="onSymbolChildClick(child, symbolChild)"
+                  >
+                    <span class="dot dot-child" :style="{ background: symbolChild.color }"></span>
+                    <div class="flex-grow-1 minw0">
+                      <div class="fw-semibold text-truncate">
+                        <template
+                          v-if="
+                            editing.type === 'symbol-child' && editing.id === String(symbolChild.id)
+                          "
+                        >
+                          <input
+                            :data-edit-id="`symbol-child-${symbolChild.id}`"
+                            v-model="editingValue"
+                            class="form-control form-control-sm"
+                            type="text"
+                            @keydown.enter.prevent="commitEdit(true)"
+                            @keydown.esc.prevent="cancelEdit"
+                            @blur="commitEdit"
+                          />
+                        </template>
+                        <template v-else>
+                          <i class="bi me-1" :class="iconForKind(symbolChild.kind)"></i>
+                          <span
+                            @dblclick.stop="
+                              startEdit('symbol-child', symbolChild.id, symbolChild.name)
+                            "
+                          >
+                            {{ symbolChild.name }}
+                          </span>
+                        </template>
+                      </div>
+                      <div class="text-muted small text-truncate">
+                        x:{{ round1(symbolChild.x) }} y:{{ round1(symbolChild.y) }}
+                      </div>
+                    </div>
+                  </button>
                 </div>
               </div>
             </template>
+          </div>
 
-            <template v-else>
-              <span class="dot" :style="{ background: row.color }"></span>
-
-              <div class="flex-grow-1 minw0">
-                <div class="fw-semibold text-truncate">{{ row.name }}</div>
-                <div class="text-muted small text-truncate">
-                  x:{{ round1(row.x) }} y:{{ round1(row.y) }}
-                </div>
-              </div>
-            </template>
-          </button>
-
-          <!-- Actions -->
-          <button
-            class="icon-btn"
-            type="button"
-            @click.stop="toggleVisibleRow(row)"
-            :title="row.type === 'group' ? 'Mostrar/ocultar grupo' : 'Mostrar/ocultar'"
-          >
-            <i class="bi" :class="row.visible ? 'bi-eye' : 'bi-eye-slash'"></i>
-          </button>
-
-          <button
-            class="icon-btn"
-            type="button"
-            @click.stop="toggleLockRow(row)"
-            :title="row.type === 'group' ? 'Bloquear/desbloquear grupo' : 'Bloquear/desbloquear'"
-          >
-            <i class="bi" :class="row.locked ? 'bi-lock-fill' : 'bi-unlock'"></i>
-          </button>
-        </div>
-
-        <!-- Group children (not draggable yet) -->
-        <template v-for="row in rows" :key="row.key + '_children'">
-          <div v-if="row.type === 'group' && isGroupOpen(row.groupId)" class="group-children">
+          <!-- Symbol children (inline) -->
+          <div v-else-if="row.type === 'symbol' && isSymbolOpen(row.id)" class="group-children">
             <button
               v-for="child in row.children"
               :key="child.id"
               class="child-item"
-              :class="{ active: child.id === store.selectedId }"
               type="button"
-              :data-id="String(child.id)"
-              :data-group="String(row.groupId)"
-              @click="store.select(child.id)"
+              @click="onSymbolChildClick(row, child)"
             >
               <span class="dot dot-child" :style="{ background: child.color }"></span>
-
               <div class="flex-grow-1 minw0">
-                <div class="fw-semibold text-truncate">{{ child.name }}</div>
+                <div class="fw-semibold text-truncate">
+                  <template
+                    v-if="editing.type === 'symbol-child' && editing.id === String(child.id)"
+                  >
+                    <input
+                      :data-edit-id="`symbol-child-${child.id}`"
+                      v-model="editingValue"
+                      class="form-control form-control-sm"
+                      type="text"
+                      @keydown.enter.prevent="commitEdit(true)"
+                      @keydown.esc.prevent="cancelEdit"
+                      @blur="commitEdit"
+                    />
+                  </template>
+                  <template v-else>
+                    <i class="bi me-1" :class="iconForKind(child.kind)"></i>
+                    <span @dblclick.stop="startEdit('symbol-child', child.id, child.name)">
+                      {{ child.name }}
+                    </span>
+                  </template>
+                </div>
                 <div class="text-muted small text-truncate">
                   x:{{ round1(child.x) }} y:{{ round1(child.y) }}
                 </div>
               </div>
-
-              <button
-                class="icon-btn icon-btn-sm"
-                type="button"
-                @click.stop="store.toggleVisible(child.id)"
-              >
-                <i class="bi" :class="child.visible ? 'bi-eye' : 'bi-eye-slash'"></i>
-              </button>
-
-              <button
-                class="icon-btn icon-btn-sm"
-                type="button"
-                @click.stop="store.toggleLock(child.id)"
-              >
-                <i class="bi" :class="child.locked ? 'bi-lock-fill' : 'bi-unlock'"></i>
-              </button>
             </button>
           </div>
         </template>
+      </div>
+
+      <div v-show="!collapsed" class="mt-3 d-grid">
+        <button
+          class="btn btn-sm btn-outline-danger"
+          type="button"
+          :disabled="!canDelete"
+          @click="deleteSelection"
+        >
+          <i class="bi bi-trash me-1"></i> Eliminar seleccion
+        </button>
       </div>
     </div>
   </div>
@@ -150,6 +389,15 @@ const nodesFrontToBack = computed(() => [...store.nodes].reverse())
 const groupSortables = new Map()
 // grupos abiertos (por UI)
 const openGroups = ref(new Set())
+const openSymbols = ref(new Set())
+const editing = ref({ type: null, id: null })
+const editingValue = ref('')
+
+const canDelete = computed(() => {
+  if (store.ui?.symbolEdit?.active) return (store.selectedNodes?.length || 0) > 0
+  if (store.selectedGroupId) return true
+  return (store.selectedIds?.length || 0) > 0
+})
 
 function isGroupOpen(groupId) {
   return openGroups.value.has(groupId)
@@ -162,6 +410,60 @@ function toggleGroup(groupId) {
   openGroups.value = set
 }
 
+function isSymbolOpen(id) {
+  return openSymbols.value.has(String(id))
+}
+
+function toggleSymbol(id) {
+  const set = new Set(openSymbols.value)
+  const key = String(id)
+  if (set.has(key)) set.delete(key)
+  else set.add(key)
+  openSymbols.value = set
+}
+
+function isTypingTarget(e) {
+  const el = e?.target
+  if (!el) return false
+  const tag = (el.tagName || '').toLowerCase()
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable
+}
+
+function startEdit(type, id, currentName = '') {
+  editing.value = { type, id: String(id) }
+  editingValue.value = String(currentName || '')
+  nextTick(() => {
+    const el = document.querySelector(`[data-edit-id="${type}-${id}"]`)
+    el?.focus?.()
+    el?.select?.()
+  })
+}
+
+function cancelEdit() {
+  editing.value = { type: null, id: null }
+  editingValue.value = ''
+}
+
+function commitEdit(advance = false) {
+  const type = editing.value.type
+  const id = editing.value.id
+  const name = String(editingValue.value || '').trim()
+  if (!type || !id) return cancelEdit()
+
+  if (type === 'group') store.updateGroupName?.(id, name)
+  if (type === 'node') store.updateNodeName?.(id, name)
+  if (type === 'symbol') store.updateSymbolName?.(id, name)
+  if (type === 'symbol-child') store.updateNodeName?.(id, name)
+
+  const order = renameOrder.value
+  const idx = order.findIndex((entry) => entry.type === type && String(entry.id) === String(id))
+  cancelEdit()
+  if (advance && idx >= 0) {
+    const next = order[idx + 1]
+    if (next) startEdit(next.type, next.id, next.name)
+  }
+}
+
 const childIdsByGroup = computed(() => {
   // source of truth: store.groups[].childIds
   const m = new Map()
@@ -172,11 +474,34 @@ const childIdsByGroup = computed(() => {
   return m
 })
 
+const symbolsById = computed(() => new Map((store.symbols || []).map((s) => [String(s.id), s])))
+
 const nodeById = computed(() => {
   const m = new Map()
   for (const n of store.nodes) m.set(String(n.id), n)
   return m
 })
+
+function iconForKind(kind) {
+  if (kind === 'text') return 'bi-fonts'
+  if (kind === 'image') return 'bi-image'
+  if (kind === 'symbol') return 'bi-stars'
+  return 'bi-circle-fill'
+}
+
+function labelForNode(n, fallback) {
+  if (n?.kind === 'symbol') {
+    const symbol = symbolsById.value.get(String(n.symbolId))
+    return symbol?.name || fallback || 'Simbolo'
+  }
+  const custom = typeof n?.name === 'string' ? n.name.trim() : ''
+  return custom || fallback
+}
+
+function colorForNode(n) {
+  if (n?.kind === 'symbol') return '#12a4b7'
+  return n?.color || 'rgba(0,0,0,.08)'
+}
 
 // top-level rows: grupos + elementos no agrupados
 const rows = computed(() => {
@@ -207,15 +532,36 @@ const rows = computed(() => {
     const childrenFrontToBack = orderedIds
       .map((id) => nodeById.value.get(String(id)))
       .filter(Boolean)
-      .map((n, idx, arr) => ({
-        id: n.id,
-        name: `Globo ${arr.length - idx}`,
-        x: n.x,
-        y: n.y,
-        color: n.color || 'rgba(0,0,0,.08)',
-        visible: n.visible !== false,
-        locked: !!n.locked,
-      }))
+      .map((n, idx, arr) => {
+        if (n.kind === 'symbol') {
+          return {
+            type: 'symbol',
+            key: `child_${n.id}`,
+            id: n.id,
+            kind: n.kind,
+            name: labelForNode(n, `Simbolo ${arr.length - idx}`),
+            x: n.x,
+            y: n.y,
+            color: colorForNode(n),
+            visible: n.visible !== false,
+            locked: !!n.locked,
+            childCount: symbolChildrenForInstance(n).length,
+            children: symbolChildrenForInstance(n),
+          }
+        }
+        return {
+          type: 'node',
+          key: `child_${n.id}`,
+          id: n.id,
+          kind: n.kind,
+          name: labelForNode(n, `Globo ${arr.length - idx}`),
+          x: n.x,
+          y: n.y,
+          color: colorForNode(n),
+          visible: n.visible !== false,
+          locked: !!n.locked,
+        }
+      })
     return {
       type: 'group',
       key: `group_${g.id}`,
@@ -237,17 +583,22 @@ const rows = computed(() => {
   const ungrouped = nodesFrontToBack.value
     .filter((n) => !groupedIds.has(String(n.id)) && !n.groupId)
     .map((n, idx, arr) => ({
-      type: 'node',
+      type: n.kind === 'symbol' ? 'symbol' : 'node',
       key: `node_${n.id}`,
       dataId: String(n.id),
       id: n.id,
-      name: `Globo ${arr.length - idx}`,
+      kind: n.kind,
+      name: labelForNode(n, `Globo ${arr.length - idx}`),
       x: n.x,
       y: n.y,
-      color: n.color || 'rgba(0,0,0,.08)',
+      color: colorForNode(n),
       visible: n.visible !== false,
       locked: !!n.locked,
       active: n.id === store.selectedId,
+      childCount: n.kind === 'symbol' ? symbolChildrenForInstance(n).length : 0,
+      lockedInfo: n.locked ? 'Bloqueado' : 'Libre',
+      visibleInfo: n.visible !== false ? 'Visible' : 'Oculto',
+      children: n.kind === 'symbol' ? symbolChildrenForInstance(n) : [],
     }))
 
   // 4) combinar rows en el orden del stack (front->back)
@@ -281,6 +632,99 @@ const rows = computed(() => {
 
   return rows
 })
+
+const renameOrder = computed(() => {
+  const list = []
+  for (const row of rows.value) {
+    if (row.type === 'group') {
+      list.push({ type: 'group', id: row.groupId, name: row.name })
+      if (isGroupOpen(row.groupId)) {
+        for (const child of row.children || []) {
+          if (child.type === 'symbol') {
+            list.push({ type: 'symbol', id: child.id, name: child.name })
+            if (isSymbolOpen(child.id)) {
+              for (const sub of child.children || []) {
+                list.push({ type: 'symbol-child', id: sub.id, name: sub.name })
+              }
+            }
+          } else {
+            list.push({ type: 'node', id: child.id, name: child.name })
+          }
+        }
+      }
+      continue
+    }
+
+    if (row.type === 'symbol') {
+      list.push({ type: 'symbol', id: row.id, name: row.name })
+      if (isSymbolOpen(row.id)) {
+        for (const sub of row.children || []) {
+          list.push({ type: 'symbol-child', id: sub.id, name: sub.name })
+        }
+      }
+      continue
+    }
+
+    list.push({ type: 'node', id: row.id, name: row.name })
+  }
+  return list
+})
+
+function onListKeyDown(e) {
+  if (isTypingTarget(e)) return
+  if (e.key !== 'F2') return
+  e.preventDefault()
+
+  if (store.ui?.symbolEdit?.active && store.selectedNode) {
+    startEdit('symbol-child', store.selectedNode.id, store.selectedNode.name)
+    return
+  }
+
+  if (store.selectedGroupId) {
+    const group = (store.groups || []).find((g) => String(g.id) === String(store.selectedGroupId))
+    if (group) startEdit('group', group.id, group.name)
+    return
+  }
+
+  if (store.selectedNode?.kind === 'symbol') {
+    startEdit('symbol', store.selectedNode.id, store.selectedNode.name)
+    return
+  }
+
+  if (store.selectedId) {
+    startEdit('node', store.selectedId, store.selectedNode?.name || '')
+  }
+}
+
+function deleteSelection() {
+  store.deleteLayerSelection?.()
+}
+
+function symbolChildrenForInstance(instance) {
+  const symbol = symbolsById.value.get(String(instance.symbolId))
+  if (!symbol || !Array.isArray(symbol.nodes)) return []
+  return symbol.nodes.map((n, idx, arr) => ({
+    id: n.id,
+    kind: n.kind,
+    name: labelForNode(
+      n,
+      n.kind === 'text' ? 'Texto' : n.kind === 'image' ? 'Imagen' : `Globo ${arr.length - idx}`,
+    ),
+    x: n.x,
+    y: n.y,
+    color: colorForNode(n),
+  }))
+}
+
+function onSymbolRowClick(row) {
+  store.select(row.id, { append: false })
+}
+
+function onSymbolChildClick(row, child) {
+  if (!row?.id || !child?.id) return
+  store.enterSymbolEdit?.(row.id)
+  store.selectSymbolNode?.(child.id, { append: false })
+}
 
 function setupSortable() {
   if (!listEl.value) return
@@ -547,6 +991,11 @@ function round1(v) {
   border-radius: 6px;
 }
 
+.dot-symbol {
+  background: #12a4b7;
+  box-shadow: 0 0 0 2px rgba(18, 164, 183, 0.15);
+}
+
 .group-children {
   margin-left: 18px;
   padding-left: 12px;
@@ -554,6 +1003,15 @@ function round1(v) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.symbol-children {
+  margin-left: 12px;
+  padding-left: 10px;
+  border-left: 2px dashed rgba(18, 164, 183, 0.2);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .child-item {
@@ -576,6 +1034,14 @@ function round1(v) {
     border-color: rgba(13, 110, 253, 0.28);
     background: rgba(13, 110, 253, 0.04);
   }
+}
+
+.symbol-child .child-item {
+  padding-left: 6px;
+}
+
+.child-symbol {
+  padding-left: 8px;
 }
 
 .minw0 {

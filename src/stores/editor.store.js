@@ -15,6 +15,10 @@ function uid() {
   return 'node_' + Math.random().toString(36).slice(2, 10)
 }
 
+function symbolUid() {
+  return 'symbol_' + Math.random().toString(36).slice(2, 10)
+}
+
 function clamp(n, min, max) {
   return Math.min(max, Math.max(min, n))
 }
@@ -30,6 +34,7 @@ const STORAGE_KEY = 'ballon_designer_autosave_v1'
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     nodes: [],
+    symbols: [],
 
     // selección
     selectedId: null,
@@ -64,6 +69,12 @@ export const useEditorStore = defineStore('editor', {
       },
       stackSelection: {
         preview: false,
+      },
+      symbolEdit: {
+        active: false,
+        symbolId: null,
+        instanceId: null,
+        selectedIds: [],
       },
       guideBoxMode: {
         active: false,
@@ -138,16 +149,46 @@ export const useEditorStore = defineStore('editor', {
 
   getters: {
     selectedNode(state) {
+      if (state.ui?.symbolEdit?.active) {
+        const symbol = (state.symbols || []).find(
+          (s) => String(s.id) === String(state.ui.symbolEdit.symbolId),
+        )
+        const ids = state.ui.symbolEdit.selectedIds || []
+        const id = ids.length ? ids[ids.length - 1] : null
+        return symbol?.nodes?.find((n) => n.id === id) || null
+      }
       return state.nodes.find((n) => n.id === state.selectedId) || null
     },
 
     selectedNodes(state) {
+      if (state.ui?.symbolEdit?.active) {
+        const symbol = (state.symbols || []).find(
+          (s) => String(s.id) === String(state.ui.symbolEdit.symbolId),
+        )
+        const set = new Set(state.ui.symbolEdit.selectedIds || [])
+        return (symbol?.nodes || []).filter((n) => set.has(n.id))
+      }
       const set = new Set(state.selectedIds || [])
       return state.nodes.filter((n) => set.has(n.id))
     },
 
     visibleNodes(state) {
       return state.nodes.filter((n) => n.visible !== false)
+    },
+
+    symbolEditState(state) {
+      return (
+        state.ui?.symbolEdit || { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+      )
+    },
+
+    symbolEditSelectedNodes(state) {
+      const edit = state.ui?.symbolEdit
+      if (!edit?.active) return []
+      const symbol = (state.symbols || []).find((s) => String(s.id) === String(edit.symbolId))
+      if (!symbol || !Array.isArray(symbol.nodes)) return []
+      const set = new Set(edit.selectedIds || [])
+      return symbol.nodes.filter((n) => set.has(n.id))
     },
 
     stackSelectionLayout(state) {
@@ -169,7 +210,7 @@ export const useEditorStore = defineStore('editor', {
       const gapY = Math.max(0, Math.round(Number(grid.gapY ?? grid.gap ?? 0) || 0))
 
       const boxes = nodes.map((n) => {
-        const box = nodeBoundingBox(n)
+        const box = nodeBoundingBoxForSymbols(n, state.symbols)
         return {
           id: n.id,
           width: box.width,
@@ -214,7 +255,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     materialsSummary(state) {
-      const nodes = state.nodes.filter(
+      const nodes = expandSymbolNodes(state.nodes, state.symbols, 4).filter(
         (n) =>
           n.visible !== false && n.kind !== 'text' && n.kind !== 'image' && n?.meta?.guide !== true,
       )
@@ -280,6 +321,7 @@ export const useEditorStore = defineStore('editor', {
       meta = {},
       kind = 'balloon',
       useStackGrid = false,
+      name = '',
     } = {}) {
       const nextPos = useStackGrid
         ? this.getStackGridPosition(meta, { fallbackX: x, fallbackY: y })
@@ -287,6 +329,7 @@ export const useEditorStore = defineStore('editor', {
       const node = {
         id: uid(),
         kind,
+        name: String(name || '') || 'Globo',
         typeId,
         x: Number.isFinite(Number(nextPos?.x))
           ? Number(nextPos.x)
@@ -572,11 +615,350 @@ export const useEditorStore = defineStore('editor', {
       return true
     },
 
+    // ===== Symbols =====
+    createSymbolFromSelection({ name } = {}) {
+      if (this.ui?.symbolEdit?.active) {
+        const edit = this.ui.symbolEdit
+        const symbol = (this.symbols || []).find((s) => String(s.id) === String(edit.symbolId))
+        if (!symbol || !Array.isArray(symbol.nodes)) return null
+
+        const selectedIds = new Set(edit.selectedIds || [])
+        const selected = symbol.nodes.filter((n) => selectedIds.has(n.id) && !n?.meta?.guide)
+        if (selected.length < 2) return null
+
+        let minX = Infinity
+        let minY = Infinity
+        let maxX = -Infinity
+        let maxY = -Infinity
+
+        for (const n of selected) {
+          const box = nodeBoundingBoxForSymbols(n, this.symbols)
+          minX = Math.min(minX, box.left)
+          minY = Math.min(minY, box.top)
+          maxX = Math.max(maxX, box.right)
+          maxY = Math.max(maxY, box.bottom)
+        }
+
+        const centerX = (minX + maxX) / 2
+        const centerY = (minY + maxY) / 2
+
+        const symbolId = symbolUid()
+        const symbolName = String(name || '').trim() || `Simbolo ${this.symbols.length + 1}`
+        const ordered = [...selected]
+
+        const symbolNodes = ordered.map((n) => ({
+          ...deepClone(n),
+          id: uid(),
+          x: Number(n.x || 0) - centerX,
+          y: Number(n.y || 0) - centerY,
+          groupId: null,
+        }))
+
+        const selectedSet = new Set(selected.map((n) => n.id))
+        const original = symbol.nodes.slice()
+        const insertAt = original.findIndex((n) => selectedSet.has(n.id))
+        symbol.nodes = original.filter((n) => !selectedSet.has(n.id))
+
+        this.symbols = [
+          ...(this.symbols || []),
+          { id: symbolId, name: symbolName, nodes: symbolNodes },
+        ]
+
+        const instanceId = uid()
+        const instanceNode = {
+          id: instanceId,
+          kind: 'symbol',
+          symbolId,
+          x: centerX,
+          y: centerY,
+          rotation: 0,
+          scaleX: 1,
+          scaleY: 1,
+          opacity: 1,
+          locked: false,
+          visible: true,
+          zIndex: 0,
+          groupId: null,
+          meta: {},
+        }
+
+        const targetIndex = insertAt >= 0 ? insertAt : symbol.nodes.length
+        symbol.nodes.splice(targetIndex, 0, instanceNode)
+
+        edit.selectedIds = [instanceId]
+        this.markDirty('Crear simbolo')
+        return instanceId
+      }
+
+      const selected = this.selectedNodes.filter((n) => !n?.meta?.guide && n.kind !== 'symbol')
+      if (selected.length < 2) return null
+
+      let minX = Infinity
+      let minY = Infinity
+      let maxX = -Infinity
+      let maxY = -Infinity
+
+      for (const n of selected) {
+        const box = nodeBoundingBoxForSymbols(n, this.symbols)
+        minX = Math.min(minX, box.left)
+        minY = Math.min(minY, box.top)
+        maxX = Math.max(maxX, box.right)
+        maxY = Math.max(maxY, box.bottom)
+      }
+
+      const centerX = (minX + maxX) / 2
+      const centerY = (minY + maxY) / 2
+
+      const symbolId = symbolUid()
+      const symbolName = String(name || '').trim() || `Simbolo ${this.symbols.length + 1}`
+      const ordered = [...selected].sort((a, b) => (a.zIndex ?? 0) - (b.zIndex ?? 0))
+
+      const symbolNodes = ordered.map((n) => ({
+        ...deepClone(n),
+        id: uid(),
+        x: Number(n.x || 0) - centerX,
+        y: Number(n.y || 0) - centerY,
+        groupId: null,
+      }))
+
+      const removeIds = new Set(selected.map((n) => n.id))
+      this.nodes = this.nodes.filter((n) => !removeIds.has(n.id))
+      applyGroupMembership(this)
+
+      this.symbols = [
+        ...(this.symbols || []),
+        { id: symbolId, name: symbolName, nodes: symbolNodes },
+      ]
+
+      const instanceId = uid()
+      this.nodes.push({
+        id: instanceId,
+        kind: 'symbol',
+        symbolId,
+        x: centerX,
+        y: centerY,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        zIndex: this.nodes.length,
+        groupId: null,
+        meta: {},
+      })
+
+      this.reindexZ()
+      this.select(instanceId, { append: false })
+      this.markDirty('Crear simbolo')
+      return instanceId
+    },
+
+    addSymbolInstance(symbolId, { x = 200, y = 200 } = {}) {
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(symbolId))
+      if (!symbol) return null
+      const instanceId = uid()
+      this.nodes.push({
+        id: instanceId,
+        kind: 'symbol',
+        symbolId: symbol.id,
+        x: Number.isFinite(Number(x)) ? Number(x) : 200,
+        y: Number.isFinite(Number(y)) ? Number(y) : 200,
+        rotation: 0,
+        scaleX: 1,
+        scaleY: 1,
+        opacity: 1,
+        locked: false,
+        visible: true,
+        zIndex: this.nodes.length,
+        groupId: null,
+        meta: {},
+      })
+      this.select(instanceId, { append: false })
+      this.markDirty('Agregar simbolo')
+      return instanceId
+    },
+
+    enterSymbolEdit(instanceId) {
+      const instance = this.nodes.find((n) => String(n.id) === String(instanceId))
+      if (!instance || instance.kind !== 'symbol') return false
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(instance.symbolId))
+      if (!symbol) return false
+      const firstChildId = symbol.nodes?.length ? symbol.nodes[0].id : null
+      this.ui.symbolEdit = {
+        active: true,
+        symbolId: instance.symbolId,
+        instanceId: instance.id,
+        selectedIds: firstChildId ? [firstChildId] : [],
+      }
+      this.clearSelection()
+      return true
+    },
+
+    enterNestedSymbolEdit(nestedInstanceId) {
+      const edit = this.ui?.symbolEdit
+      if (!edit?.active) return false
+      const parent = (this.symbols || []).find((s) => String(s.id) === String(edit.symbolId))
+      if (!parent) return false
+      const nested = parent.nodes?.find((n) => String(n.id) === String(nestedInstanceId))
+      if (!nested || nested.kind !== 'symbol') return false
+
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(nested.symbolId))
+      if (!symbol) return false
+
+      const firstChildId = symbol.nodes?.length ? symbol.nodes[0].id : null
+      this.ui.symbolEdit = {
+        active: true,
+        symbolId: nested.symbolId,
+        instanceId: nested.id,
+        selectedIds: firstChildId ? [firstChildId] : [],
+      }
+      this.markDirty('Editar simbolo')
+      return true
+    },
+
+    exitSymbolEdit({ selectInstance = true } = {}) {
+      const instanceId = this.ui?.symbolEdit?.instanceId
+      this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+      if (selectInstance && instanceId) this.select(instanceId, { append: false })
+    },
+
+    selectSymbolNode(id, { append = false } = {}) {
+      const edit = this.ui?.symbolEdit
+      if (!edit?.active) return
+      if (!append) {
+        edit.selectedIds = [id]
+        return
+      }
+      const set = new Set(edit.selectedIds || [])
+      set.add(id)
+      edit.selectedIds = [...set]
+    },
+
+    toggleSelectSymbolNode(id) {
+      const edit = this.ui?.symbolEdit
+      if (!edit?.active) return
+      const set = new Set(edit.selectedIds || [])
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
+      edit.selectedIds = [...set]
+    },
+
+    clearSymbolSelection() {
+      const edit = this.ui?.symbolEdit
+      if (!edit?.active) return
+      edit.selectedIds = []
+    },
+
+    updateSymbolNode(symbolId, nodeId, patch) {
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(symbolId))
+      if (!symbol) return
+      const node = (symbol.nodes || []).find((n) => String(n.id) === String(nodeId))
+      if (!node) return
+      Object.assign(node, patch || {})
+      this.markDirty('Actualizar simbolo')
+    },
+
+    updateSymbolNodes(symbolId, patchById = {}) {
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(symbolId))
+      if (!symbol) return
+      const map = patchById && typeof patchById === 'object' ? patchById : {}
+      let changed = false
+      for (const id of Object.keys(map)) {
+        const node = (symbol.nodes || []).find((n) => String(n.id) === String(id))
+        if (!node) continue
+        Object.assign(node, map[id] || {})
+        changed = true
+      }
+      if (changed) this.markDirty('Actualizar simbolo')
+    },
+
+    updateNodeName(id, name = '') {
+      const node = this.nodes.find((n) => n.id === id)
+      if (node) {
+        node.name = String(name || '').trim()
+        this.markDirty('Renombrar elemento')
+        return
+      }
+
+      if (this.ui?.symbolEdit?.active) {
+        const symbol = (this.symbols || []).find(
+          (s) => String(s.id) === String(this.ui.symbolEdit.symbolId),
+        )
+        const target = symbol?.nodes?.find((n) => n.id === id)
+        if (!target) return
+        target.name = String(name || '').trim()
+        this.markDirty('Renombrar simbolo')
+      }
+    },
+
+    updateGroupName(id, name = '') {
+      const group = (this.groups || []).find((g) => String(g.id) === String(id))
+      if (!group) return
+      group.name = String(name || '').trim() || 'Grupo'
+      this.markDirty('Renombrar grupo')
+    },
+
+    updateSymbolName(id, name = '') {
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(id))
+      if (!symbol) return
+      symbol.name = String(name || '').trim() || 'Simbolo'
+      this.markDirty('Renombrar simbolo')
+    },
+
+    detachSymbolInstance(instanceId) {
+      const instance = this.nodes.find((n) => String(n.id) === String(instanceId))
+      if (!instance || instance.kind !== 'symbol') return false
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(instance.symbolId))
+      if (!symbol || !Array.isArray(symbol.nodes) || !symbol.nodes.length) return false
+
+      const sx = Number.isFinite(Number(instance.scaleX)) ? Number(instance.scaleX) : 1
+      const sy = Number.isFinite(Number(instance.scaleY)) ? Number(instance.scaleY) : 1
+      const opacity = Number.isFinite(Number(instance.opacity)) ? Number(instance.opacity) : 1
+      const rotation = Number.isFinite(Number(instance.rotation)) ? Number(instance.rotation) : 0
+
+      const nextNodes = symbol.nodes.map((n) => ({
+        ...deepClone(n),
+        id: uid(),
+        x: Number(instance.x || 0) + Number(n.x || 0) * sx,
+        y: Number(instance.y || 0) + Number(n.y || 0) * sy,
+        scaleX: Number.isFinite(Number(n.scaleX)) ? Number(n.scaleX) * sx : sx,
+        scaleY: Number.isFinite(Number(n.scaleY)) ? Number(n.scaleY) * sy : sy,
+        opacity: Number.isFinite(Number(n.opacity)) ? Number(n.opacity) * opacity : opacity,
+        rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) + rotation : rotation,
+        groupId: null,
+      }))
+
+      const idx = this.nodes.findIndex((n) => String(n.id) === String(instanceId))
+      this.nodes = this.nodes.filter((n) => String(n.id) !== String(instanceId))
+      const insertAt = idx >= 0 ? idx : this.nodes.length
+      this.nodes.splice(insertAt, 0, ...nextNodes)
+
+      this.reindexZ()
+      this.setSelection(nextNodes.map((n) => n.id))
+      this.markDirty('Desvincular simbolo')
+      return true
+    },
+
+    deleteSymbolSelection() {
+      const edit = this.ui?.symbolEdit
+      if (!edit?.active) return false
+      const symbol = (this.symbols || []).find((s) => String(s.id) === String(edit.symbolId))
+      if (!symbol) return false
+      const ids = new Set(edit.selectedIds || [])
+      if (!ids.size) return false
+      symbol.nodes = (symbol.nodes || []).filter((n) => !ids.has(n.id))
+      edit.selectedIds = []
+      this.markDirty('Eliminar simbolo')
+      return true
+    },
+
     addTextNode({ x = 160, y = 160, text = 'New text' } = {}) {
       const node = {
         id: uid(),
         kind: 'text',
         typeId: 'text',
+        name: 'Texto',
         x: Number.isFinite(Number(x)) ? Number(x) : 160,
         y: Number.isFinite(Number(y)) ? Number(y) : 160,
         rotation: 0,
@@ -608,6 +990,7 @@ export const useEditorStore = defineStore('editor', {
         id: uid(),
         kind: 'image',
         typeId: 'image',
+        name: 'Imagen',
         x: Number.isFinite(Number(x)) ? Number(x) : 160,
         y: Number.isFinite(Number(y)) ? Number(y) : 160,
         rotation: 0,
@@ -990,44 +1373,86 @@ export const useEditorStore = defineStore('editor', {
 
     updateNode(id, patch) {
       const node = this.nodes.find((n) => n.id === id)
-      if (!node) return
-      Object.assign(node, patch || {})
-      this.markDirty('Actualizar globo')
+      if (node) {
+        Object.assign(node, patch || {})
+        this.markDirty('Actualizar globo')
+        return
+      }
+
+      if (this.ui?.symbolEdit?.active) {
+        this.updateSymbolNode(this.ui.symbolEdit.symbolId, id, patch)
+      }
     },
 
     updateNodes(patchById = {}) {
       const map = patchById && typeof patchById === 'object' ? patchById : {}
       let changed = false
+      const symbolPatch = {}
       for (const id of Object.keys(map)) {
         const node = this.nodes.find((n) => n.id === id)
-        if (!node) continue
-        Object.assign(node, map[id] || {})
-        changed = true
+        if (node) {
+          Object.assign(node, map[id] || {})
+          changed = true
+        } else if (this.ui?.symbolEdit?.active) {
+          symbolPatch[id] = map[id]
+        }
       }
       if (changed) this.markDirty('Actualizar globo')
+      if (this.ui?.symbolEdit?.active && Object.keys(symbolPatch).length) {
+        this.updateSymbolNodes(this.ui.symbolEdit.symbolId, symbolPatch)
+      }
     },
 
     setNodeType(id, { typeId, metaDefaults = null, replaceMeta = true } = {}) {
       const node = this.nodes.find((n) => n.id === id)
-      if (!node) return
+      if (node) {
+        node.typeId = String(typeId || node.typeId || 'round-11')
 
-      node.typeId = String(typeId || node.typeId || 'round-11')
+        if (metaDefaults && typeof metaDefaults === 'object') {
+          if (replaceMeta) node.meta = { ...metaDefaults }
+          else node.meta = { ...node.meta, ...metaDefaults }
+        } else {
+          node.meta = node.meta || {}
+        }
 
-      if (metaDefaults && typeof metaDefaults === 'object') {
-        if (replaceMeta) node.meta = { ...metaDefaults }
-        else node.meta = { ...node.meta, ...metaDefaults }
-      } else {
-        node.meta = node.meta || {}
+        this.markDirty()
+        return
       }
 
-      this.markDirty()
+      if (this.ui?.symbolEdit?.active) {
+        const symbol = (this.symbols || []).find(
+          (s) => String(s.id) === String(this.ui.symbolEdit.symbolId),
+        )
+        const target = symbol?.nodes?.find((n) => n.id === id)
+        if (!target) return
+        target.typeId = String(typeId || target.typeId || 'round-11')
+        if (metaDefaults && typeof metaDefaults === 'object') {
+          if (replaceMeta) target.meta = { ...metaDefaults }
+          else target.meta = { ...target.meta, ...metaDefaults }
+        } else {
+          target.meta = target.meta || {}
+        }
+        this.markDirty()
+      }
     },
 
     updateNodeMeta(id, metaPatch = {}) {
       const node = this.nodes.find((n) => n.id === id)
-      if (!node) return
-      node.meta = { ...node.meta, ...metaPatch }
-      this.markDirty()
+      if (node) {
+        node.meta = { ...node.meta, ...metaPatch }
+        this.markDirty()
+        return
+      }
+
+      if (this.ui?.symbolEdit?.active) {
+        const symbol = (this.symbols || []).find(
+          (s) => String(s.id) === String(this.ui.symbolEdit.symbolId),
+        )
+        const target = symbol?.nodes?.find((n) => n.id === id)
+        if (!target) return
+        target.meta = { ...target.meta, ...metaPatch }
+        this.markDirty()
+      }
     },
 
     // ===== Selección =====
@@ -1229,6 +1654,10 @@ export const useEditorStore = defineStore('editor', {
 
     // ===== Delete =====
     deleteSelected() {
+      if (this.ui?.symbolEdit?.active) {
+        this.deleteSymbolSelection()
+        return
+      }
       const ids = new Set(this.selectedIds || [])
       if (!ids.size) return
       this.nodes = this.nodes.filter((n) => !ids.has(n.id))
@@ -1236,6 +1665,34 @@ export const useEditorStore = defineStore('editor', {
       applyGroupMembership(this)
       this.reindexZ()
       this.markDirty()
+    },
+
+    deleteGroupAndChildren(groupId) {
+      const groups = Array.isArray(this.groups) ? this.groups : []
+      const target = groups.find((g) => String(g.id) === String(groupId))
+      if (!target) return false
+      const childSet = new Set((target.childIds || []).map(String))
+      if (!childSet.size) return false
+
+      this.nodes = this.nodes.filter((n) => !childSet.has(String(n.id)))
+      this.groups = groups.filter((g) => String(g.id) !== String(groupId))
+      this.selectedGroupId = null
+      this.clearSelection()
+      applyGroupMembership(this)
+      this.reindexZ()
+      this.markDirty('Eliminar grupo')
+      return true
+    },
+
+    deleteLayerSelection() {
+      if (this.ui?.symbolEdit?.active) {
+        return this.deleteSymbolSelection()
+      }
+      if (this.selectedGroupId) {
+        return this.deleteGroupAndChildren(this.selectedGroupId)
+      }
+      this.deleteSelected()
+      return true
     },
 
     // ===== Box select =====
@@ -1247,7 +1704,7 @@ export const useEditorStore = defineStore('editor', {
         if (n.visible === false) continue
         if (n?.meta?.guide) continue
 
-        const box = nodeBoundingBox(n)
+        const box = nodeBoundingBoxForSymbols(n, this.symbols)
         if (rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })) {
           hit.push(n.id)
         }
@@ -1623,6 +2080,8 @@ export const useEditorStore = defineStore('editor', {
         nodes: this.nodes.map((n) => ({
           id: n.id,
           kind: n.kind || 'balloon',
+          symbolId: n.symbolId || null,
+          name: n.name || '',
           x: n.x,
           y: n.y,
           rotation: n.rotation,
@@ -1636,6 +2095,29 @@ export const useEditorStore = defineStore('editor', {
           typeId: n.typeId || 'round-11',
           groupId: typeof n.groupId === 'string' ? n.groupId : null,
           meta: n.meta || {},
+        })),
+        symbols: (this.symbols || []).map((s) => ({
+          id: s.id,
+          name: String(s.name || 'Simbolo'),
+          nodes: (s.nodes || []).map((n) => ({
+            id: n.id,
+            kind: n.kind || 'balloon',
+            symbolId: n.symbolId || null,
+            name: n.name || '',
+            x: n.x,
+            y: n.y,
+            rotation: n.rotation,
+            scaleX: n.scaleX,
+            scaleY: n.scaleY,
+            opacity: n.opacity,
+            color: n.color,
+            locked: !!n.locked,
+            visible: n.visible !== false,
+            zIndex: n.zIndex ?? 0,
+            typeId: n.typeId || 'round-11',
+            groupId: typeof n.groupId === 'string' ? n.groupId : null,
+            meta: n.meta || {},
+          })),
         })),
         groups: (this.groups || []).map((g) => ({
           id: g.id,
@@ -1688,7 +2170,16 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes = data.nodes.map((n) => ({
         id: String(n.id || uid()),
-        kind: n.kind === 'text' ? 'text' : n.kind === 'image' ? 'image' : 'balloon',
+        kind:
+          n.kind === 'text'
+            ? 'text'
+            : n.kind === 'image'
+              ? 'image'
+              : n.kind === 'symbol'
+                ? 'symbol'
+                : 'balloon',
+        symbolId: n.symbolId ? String(n.symbolId) : null,
+        name: typeof n.name === 'string' ? n.name : '',
         x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
         y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
         rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
@@ -1702,6 +2193,37 @@ export const useEditorStore = defineStore('editor', {
         typeId: String(n.typeId || 'round-11'),
         groupId: typeof n.groupId === 'string' ? n.groupId : null,
         meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
+      }))
+
+      this.symbols = (Array.isArray(data.symbols) ? data.symbols : []).map((s) => ({
+        id: String(s?.id || symbolUid()),
+        name: typeof s?.name === 'string' ? s.name : 'Simbolo',
+        nodes: (Array.isArray(s?.nodes) ? s.nodes : []).map((n) => ({
+          id: String(n.id || uid()),
+          kind:
+            n.kind === 'text'
+              ? 'text'
+              : n.kind === 'image'
+                ? 'image'
+                : n.kind === 'symbol'
+                  ? 'symbol'
+                  : 'balloon',
+          symbolId: n.symbolId ? String(n.symbolId) : null,
+          name: typeof n.name === 'string' ? n.name : '',
+          x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
+          y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
+          rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
+          scaleX: Number.isFinite(Number(n.scaleX)) ? Number(n.scaleX) : 1,
+          scaleY: Number.isFinite(Number(n.scaleY)) ? Number(n.scaleY) : 1,
+          opacity: Number.isFinite(Number(n.opacity)) ? Number(n.opacity) : 1,
+          color: typeof n.color === 'string' ? n.color : '#ff3b30',
+          locked: !!n.locked,
+          visible: n.visible !== false,
+          zIndex: Number.isFinite(Number(n.zIndex)) ? Number(n.zIndex) : 0,
+          typeId: String(n.typeId || 'round-11'),
+          groupId: typeof n.groupId === 'string' ? n.groupId : null,
+          meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
+        })),
       }))
 
       this.groups = (Array.isArray(data.groups) ? data.groups : [])
@@ -1759,6 +2281,8 @@ export const useEditorStore = defineStore('editor', {
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
+      this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+
       this.clearSelection()
       this.autosave.isDirty = false
       this.autosave.lastSavedAt = Number(data.savedAt || Date.now())
@@ -1785,11 +2309,13 @@ export const useEditorStore = defineStore('editor', {
       if (!ok) return
 
       this.nodes = []
+      this.symbols = []
       this.groups = []
       this.clearSelection()
       this.view = { x: 0, y: 0, scale: 1 }
       this.settings = { ...this.settings, grid: true, snap: false, snapStep: 10 }
       this.canvas = createDefaultCanvasSettings()
+      this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
 
       this.clearSavedDesign()
       this.autosave.isDirty = false
@@ -1824,7 +2350,16 @@ export const useEditorStore = defineStore('editor', {
 
       this.nodes = data.nodes.map((n) => ({
         id: String(n.id || uid()),
-        kind: n.kind === 'text' ? 'text' : n.kind === 'image' ? 'image' : 'balloon',
+        kind:
+          n.kind === 'text'
+            ? 'text'
+            : n.kind === 'image'
+              ? 'image'
+              : n.kind === 'symbol'
+                ? 'symbol'
+                : 'balloon',
+        symbolId: n.symbolId ? String(n.symbolId) : null,
+        name: typeof n.name === 'string' ? n.name : '',
         x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
         y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
         rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
@@ -1838,6 +2373,37 @@ export const useEditorStore = defineStore('editor', {
         typeId: String(n.typeId || 'round-11'),
         groupId: typeof n.groupId === 'string' ? n.groupId : null,
         meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
+      }))
+
+      this.symbols = (Array.isArray(data.symbols) ? data.symbols : []).map((s) => ({
+        id: String(s?.id || symbolUid()),
+        name: typeof s?.name === 'string' ? s.name : 'Simbolo',
+        nodes: (Array.isArray(s?.nodes) ? s.nodes : []).map((n) => ({
+          id: String(n.id || uid()),
+          kind:
+            n.kind === 'text'
+              ? 'text'
+              : n.kind === 'image'
+                ? 'image'
+                : n.kind === 'symbol'
+                  ? 'symbol'
+                  : 'balloon',
+          symbolId: n.symbolId ? String(n.symbolId) : null,
+          name: typeof n.name === 'string' ? n.name : '',
+          x: Number.isFinite(Number(n.x)) ? Number(n.x) : 0,
+          y: Number.isFinite(Number(n.y)) ? Number(n.y) : 0,
+          rotation: Number.isFinite(Number(n.rotation)) ? Number(n.rotation) : 0,
+          scaleX: Number.isFinite(Number(n.scaleX)) ? Number(n.scaleX) : 1,
+          scaleY: Number.isFinite(Number(n.scaleY)) ? Number(n.scaleY) : 1,
+          opacity: Number.isFinite(Number(n.opacity)) ? Number(n.opacity) : 1,
+          color: typeof n.color === 'string' ? n.color : '#ff3b30',
+          locked: !!n.locked,
+          visible: n.visible !== false,
+          zIndex: Number.isFinite(Number(n.zIndex)) ? Number(n.zIndex) : 0,
+          typeId: String(n.typeId || 'round-11'),
+          groupId: typeof n.groupId === 'string' ? n.groupId : null,
+          meta: typeof n.meta === 'object' && n.meta ? n.meta : {},
+        })),
       }))
 
       const defaults = createDefaultCanvasSettings()
@@ -1889,6 +2455,8 @@ export const useEditorStore = defineStore('editor', {
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
+      this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+
       this.clearSelection()
       this.autosave.isDirty = false
       this.autosave.lastSavedAt = Date.now()
@@ -1910,7 +2478,10 @@ export const useEditorStore = defineStore('editor', {
       const types = Array.isArray(catalogTypes) ? catalogTypes : []
       const typeMap = new Map(types.map((t) => [t.id, t]))
 
-      const nodes = this.nodes.filter((n) => {
+      const nodes = expandSymbolNodes(this.nodes, this.symbols, 4, {
+        includeHidden,
+        includeLocked,
+      }).filter((n) => {
         const isHidden = n.visible === false
         const isLocked = !!n.locked
         if (!includeHidden && isHidden) return false
@@ -2040,7 +2611,7 @@ export const useEditorStore = defineStore('editor', {
         maxY = -Infinity
 
       for (const n of nodes) {
-        const box = nodeBoundingBox(n)
+        const box = nodeBoundingBoxForSymbols(n, this.symbols)
         minX = Math.min(minX, box.left)
         minY = Math.min(minY, box.top)
         maxX = Math.max(maxX, box.right)
@@ -2055,6 +2626,8 @@ export const useEditorStore = defineStore('editor', {
         dy: Number(n.y ?? 0) - bbox.y,
 
         kind: n.kind || 'balloon',
+        symbolId: n.symbolId || null,
+        name: n.name || '',
         typeId: n.typeId || 'round-11',
         color: n.color || '#000000',
         rotation: Number(n.rotation || 0),
@@ -2075,6 +2648,7 @@ export const useEditorStore = defineStore('editor', {
     },
 
     pasteFromClipboard({ x = null, y = null, offset = 18, multi = false } = {}) {
+      if (this.ui?.symbolEdit?.active) return null
       const clips = Array.isArray(this.clipboard?.nodes) ? this.clipboard.nodes : null
       if (!clips || !clips.length) return null
 
@@ -2116,10 +2690,24 @@ export const useEditorStore = defineStore('editor', {
           const py = baseY + c.dy + oy
           let newId = null
 
-          if (c.kind === 'text') {
+          if (c.kind === 'symbol' && c.symbolId) {
+            newId = this.addSymbolInstance(c.symbolId, { x: px, y: py })
+            if (newId) {
+              this.updateNode(newId, {
+                name: c.name || '',
+                rotation: c.rotation,
+                scaleX: c.scaleX,
+                scaleY: c.scaleY,
+                opacity: c.opacity,
+                locked: c.locked,
+                visible: c.visible,
+              })
+            }
+          } else if (c.kind === 'text') {
             newId = this.addTextNode({ x: px, y: py, text: c.meta?.text || 'New text' })
             if (newId) {
               this.updateNode(newId, {
+                name: c.name || '',
                 typeId: c.typeId || 'text',
                 color: c.color,
                 rotation: c.rotation,
@@ -2141,6 +2729,7 @@ export const useEditorStore = defineStore('editor', {
             })
             if (newId) {
               this.updateNode(newId, {
+                name: c.name || '',
                 typeId: c.typeId || 'image',
                 color: c.color,
                 rotation: c.rotation,
@@ -2160,6 +2749,7 @@ export const useEditorStore = defineStore('editor', {
               typeId: c.typeId,
               meta: { ...c.meta },
               kind: c.kind || 'balloon',
+              name: c.name || '',
             })
             if (newId) {
               this.updateNode(newId, {
@@ -2241,7 +2831,7 @@ export const useEditorStore = defineStore('editor', {
       this.beginHistoryBatch()
       try {
         const boxes = nodes.map((n) => {
-          const box = nodeBoundingBox(n)
+          const box = nodeBoundingBoxForSymbols(n, this.symbols)
           return {
             id: n.id,
             left: box.left,
@@ -2330,6 +2920,7 @@ export const useEditorStore = defineStore('editor', {
       // IMPORTANTE: usar toRaw para no clonar Proxies
       return {
         nodes: deepClone(toRaw(this.nodes)),
+        symbols: deepClone(toRaw(this.symbols)),
         view: deepClone(toRaw(this.view)),
         settings: deepClone(toRaw(this.settings)),
         groups: deepClone(toRaw(this.groups)),
@@ -2343,12 +2934,14 @@ export const useEditorStore = defineStore('editor', {
       this.history.lock = true
       try {
         this.nodes = deepClone(snap.nodes || [])
+        this.symbols = deepClone(snap.symbols || [])
         this.view = deepClone(snap.view || { x: 0, y: 0, scale: 1 })
         this.settings = deepClone(snap.settings || this.settings)
         this.groups = deepClone(snap.groups || [])
         applyGroupMembership(this)
         this.canvas = deepClone(snap.canvas || createDefaultCanvasSettings())
         this.stackGridCursor = deepClone(snap.stackGridCursor || { col: 0, row: 0 })
+        this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
         this.clearSelection()
       } finally {
         this.history.lock = false
@@ -2520,7 +3113,7 @@ function guidesInRect(store, rect, color = null) {
   if (!guides.length) return []
 
   return guides.filter((n) => {
-    const box = nodeBoundingBox(n)
+    const box = nodeBoundingBoxForSymbols(n, store.symbols)
     return rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })
   })
 }
@@ -2535,6 +3128,30 @@ function deepClone(obj) {
   }
 
   return JSON.parse(JSON.stringify(raw))
+}
+
+function expandSymbolNodes(nodes = [], symbols = [], depth = 4, options = {}) {
+  if (depth < 0) return []
+  const symbolMap = new Map((symbols || []).map((s) => [String(s.id), s]))
+  const out = []
+  const list = Array.isArray(nodes) ? nodes : []
+
+  for (const n of list) {
+    if (!n) continue
+    if (n.kind === 'symbol') {
+      if (depth <= 0) continue
+      if (options?.includeHidden === false && n.visible === false) continue
+      if (options?.includeLocked === false && n.locked) continue
+      const symbol = symbolMap.get(String(n.symbolId))
+      if (symbol?.nodes?.length) {
+        out.push(...expandSymbolNodes(symbol.nodes, symbols, depth - 1, options))
+      }
+      continue
+    }
+    out.push(n)
+  }
+
+  return out
 }
 
 function nodeHalfSize(n) {
@@ -2582,6 +3199,65 @@ function nodeBoundingBox(n) {
     right: cx + rx,
     top: cy - ry,
     bottom: cy + ry,
+    centerX: cx,
+    centerY: cy,
+  }
+}
+
+function symbolBoundingBox(symbol, symbols) {
+  const nodes = Array.isArray(symbol?.nodes) ? symbol.nodes : []
+  if (!nodes.length) {
+    return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  }
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes) {
+    const box = nodeBoundingBoxForSymbols(n, symbols)
+    minX = Math.min(minX, box.left)
+    minY = Math.min(minY, box.top)
+    maxX = Math.max(maxX, box.right)
+    maxY = Math.max(maxY, box.bottom)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) {
+    return { left: 0, right: 0, top: 0, bottom: 0, width: 0, height: 0 }
+  }
+  return {
+    left: minX,
+    right: maxX,
+    top: minY,
+    bottom: maxY,
+    width: maxX - minX,
+    height: maxY - minY,
+  }
+}
+
+function nodeBoundingBoxForSymbols(node, symbols = []) {
+  if (node?.kind !== 'symbol') return nodeBoundingBox(node)
+  const symbol = (symbols || []).find((s) => String(s.id) === String(node.symbolId))
+  if (!symbol) return nodeBoundingBox(node)
+
+  const bounds = symbolBoundingBox(symbol, symbols)
+  const sx = Math.abs(Number(node.scaleX ?? 1))
+  const sy = Math.abs(Number(node.scaleY ?? 1))
+  const cx = Number(node.x ?? 0)
+  const cy = Number(node.y ?? 0)
+
+  const left = cx + bounds.left * sx
+  const right = cx + bounds.right * sx
+  const top = cy + bounds.top * sy
+  const bottom = cy + bounds.bottom * sy
+
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+    left,
+    right,
+    top,
+    bottom,
     centerX: cx,
     centerY: cy,
   }
