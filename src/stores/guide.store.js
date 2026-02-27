@@ -3937,40 +3937,41 @@ export const useGuideStore = defineStore('guide-editor', {
         return null
 
       const centerX = (selectionBounds.left + selectionBounds.right) / 2
-      const baseY = selectionBounds.bottom
-
-      const baseSpacingRaw = averageSpacing(patternData.map((item) => item.center.y))
-      const fallbackSpacing = patternData.reduce((acc, item) => acc + item.bounds.height, 0)
-      const baseSpacingHint =
-        Number.isFinite(baseSpacingRaw) && baseSpacingRaw > 0
-          ? baseSpacingRaw
-          : Math.max(1, fallbackSpacing / patternLength)
 
       const estimatedSizeIn = estimateGroupSizeIn(patternData.flatMap((item) => item.nodes))
       const baseSizeIn =
         Number.isFinite(estimatedSizeIn) && estimatedSizeIn > 0 ? estimatedSizeIn : 9
       const nextSizeIn = Number.isFinite(Number(sizeIn)) ? Math.max(1, Number(sizeIn)) : baseSizeIn
 
-      const widthPx = arcUnitToPx(width, unit)
-      const heightPx = arcUnitToPx(height, unit)
+      const sizeRatio = nextSizeIn / baseSizeIn
+      const clusterRadiusPx = maxClusterRadiusFromBounds(patternData) * sizeRatio
+      const balloonDiameterPx = nextSizeIn * 2.54 * PX_PER_CM
+      const paddingPx = Math.max(1, clusterRadiusPx)
+      const canvasHeightPx = Number(this.canvas?.heightCm || 0) * PX_PER_CM
+      const outerBaseY =
+        Number.isFinite(canvasHeightPx) && canvasHeightPx > 0
+          ? canvasHeightPx
+          : selectionBounds.bottom
+      const baseY = outerBaseY - paddingPx
+
+      const rawWidthPx = arcUnitToPx(width, unit)
+      const rawHeightPx = arcUnitToPx(height, unit)
+      const widthPx = Math.max(1, rawWidthPx - paddingPx * 2)
+      const heightPx = Math.max(1, rawHeightPx - paddingPx * 2)
       if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
         return null
 
       const geometry = buildArcGeometry({ centerX, baseY, widthPx, heightPx })
       if (!geometry) return null
 
-      const patternWeights = patternData.map((item) => clusterEffectiveWidth(item.bounds))
-      const baseSpacingPx = averageWeight(patternWeights) || baseSpacingHint
-      const sizeRatio = nextSizeIn / baseSizeIn
-      const scaledWeights = patternWeights.map((w) => Math.max(1, w) * sizeRatio)
-      const avgScaledWeight = averageWeight(scaledWeights)
+      const baseSpacingPx = Math.max(1, balloonDiameterPx)
+      const stepPx = Math.max(1, baseSpacingPx)
       const targetCount = Math.max(
         2,
         patternLength,
-        Math.round(geometry.arcLength / Math.max(1, avgScaledWeight)),
+        Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1,
       )
-      const weights = buildWeightSequence(scaledWeights, targetCount)
-      const positions = buildArcPointsWeighted(geometry, weights)
+      const positions = buildArcPointsEven(geometry, targetCount)
       if (!positions.length) return null
 
       const arcId = `arc_${Math.random().toString(36).slice(2, 10)}`
@@ -4008,16 +4009,12 @@ export const useGuideStore = defineStore('guide-editor', {
           if (!item || !target) continue
           const group = item.group
           const nodes = item.nodes
-          const sizeRatio = nextSizeIn / baseSizeIn
-          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
-          const desiredRotation = computeArcRotation(weight)
+          const desiredRotation = rotationFromArcAngle(target.angle)
           const rotDeg = (desiredRotation * 180) / Math.PI
-          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
-          const pivotLocal = pivotFromNodes(nodes, item.center, normal)
 
           for (const node of nodes) {
-            const localX = Number(node.x || 0) - item.center.x - pivotLocal.x
-            const localY = Number(node.y || 0) - item.center.y - pivotLocal.y
+            const localX = Number(node.x || 0) - item.center.x
+            const localY = Number(node.y || 0) - item.center.y
             const scaledX = localX * sizeRatio
             const scaledY = localY * sizeRatio
             const rotated = rotateVector(scaledX, scaledY, desiredRotation)
@@ -4059,17 +4056,14 @@ export const useGuideStore = defineStore('guide-editor', {
 
           const newGroupId = groupUid()
           const ratio = Number(template.sizeIn) ? nextSizeIn / Number(template.sizeIn) : 1
-          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
-          const desiredRotation = computeArcRotation(weight)
+          const desiredRotation = rotationFromArcAngle(target.angle)
           const rotDeg = (desiredRotation * 180) / Math.PI
-          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
-          const pivotLocal = pivotFromLocal(template.nodes, normal)
 
           const nextNodes = template.nodes.map((source) => {
             const node = deepClone(source.base)
             const meta = scaleNodeMeta(node, ratio)
-            const localX = Number(source.localX || 0) - pivotLocal.x
-            const localY = Number(source.localY || 0) - pivotLocal.y
+            const localX = Number(source.localX || 0)
+            const localY = Number(source.localY || 0)
             const scaledX = localX * ratio
             const scaledY = localY * ratio
             const rotated = rotateVector(scaledX, scaledY, desiredRotation)
@@ -4185,7 +4179,7 @@ export const useGuideStore = defineStore('guide-editor', {
       const prevSize = Number(baseMeta.sizeIn || groupData[0]?.group?.meta?.sizeIn || 9)
       const nextSize = Number.isFinite(Number(sizeIn)) ? Number(sizeIn) : prevSize
       const baseSizeIn = Number(baseMeta.baseSizeIn || prevSize || 9)
-      const baseSpacingMeta = Number(baseMeta.baseSpacingPx || 0)
+      const scaleRatio = prevSize ? nextSize / prevSize : 1
       const patternIndices = groupData
         .map((item) => Number(item.arcPatternIndex))
         .filter((value) => Number.isFinite(value))
@@ -4206,14 +4200,21 @@ export const useGuideStore = defineStore('guide-editor', {
       let centerX = Number.isFinite(Number(baseMeta.centerX))
         ? Number(baseMeta.centerX)
         : (selectionBounds.left + selectionBounds.right) / 2
-      let baseY = Number.isFinite(Number(baseMeta.baseY))
-        ? Number(baseMeta.baseY)
+      const currentClusterRadiusPx = maxClusterRadiusFromBounds(groupData)
+      const nextClusterRadiusPx = currentClusterRadiusPx * scaleRatio
+      const prevBalloonRadiusPx = (prevSize * 2.54 * PX_PER_CM) / 2
+      const nextBalloonRadiusPx = (nextSize * 2.54 * PX_PER_CM) / 2
+      const outerBaseY = Number.isFinite(Number(baseMeta.baseY))
+        ? Number(baseMeta.baseY) + currentClusterRadiusPx
         : selectionBounds.bottom
+      let baseY = outerBaseY - nextClusterRadiusPx
       if (!Number.isFinite(centerX)) centerX = 0
       if (!Number.isFinite(baseY)) baseY = 0
 
-      const widthPx = arcUnitToPx(nextWidth, arcUnit)
-      const heightPx = arcUnitToPx(nextHeight, arcUnit)
+      const rawWidthPx = arcUnitToPx(nextWidth, arcUnit)
+      const rawHeightPx = arcUnitToPx(nextHeight, arcUnit)
+      const widthPx = Math.max(1, rawWidthPx - nextClusterRadiusPx * 2)
+      const heightPx = Math.max(1, rawHeightPx - nextClusterRadiusPx * 2)
       if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
         return false
 
@@ -4224,20 +4225,15 @@ export const useGuideStore = defineStore('guide-editor', {
         .filter((item) => Number.isFinite(Number(item.arcPatternIndex)))
         .sort((a, b) => Number(a.arcPatternIndex || 0) - Number(b.arcPatternIndex || 0))
       const patternSource = patternGroups.length ? patternGroups : groupData.slice(0, patternLength)
-      const patternWeights = patternSource.map((item) => clusterEffectiveWidth(item.bounds))
-      const baseSpacingPx = Number.isFinite(baseSpacingMeta)
-        ? baseSpacingMeta
-        : averageWeight(patternWeights)
-      const patternSizeRatio = nextSize / baseSizeIn
-      const scaledWeights = patternWeights.map((w) => Math.max(1, w) * patternSizeRatio)
-      const avgScaledWeight = averageWeight(scaledWeights)
+      const balloonDiameterPx = nextSize * 2.54 * PX_PER_CM
+      const baseSpacingPx = Math.max(1, balloonDiameterPx)
+      const stepPx = Math.max(1, baseSpacingPx)
       const targetCount = Math.max(
         2,
         patternLength,
-        Math.round(geometry.arcLength / Math.max(1, avgScaledWeight)),
+        Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1,
       )
-      const weights = buildWeightSequence(scaledWeights, targetCount)
-      const positions = buildArcPointsWeighted(geometry, weights)
+      const positions = buildArcPointsEven(geometry, targetCount)
       if (!positions.length) return false
 
       const arcMeta = buildArcMeta({
@@ -4284,21 +4280,18 @@ export const useGuideStore = defineStore('guide-editor', {
           if (!item || !target) continue
           const group = item.group
           const nodes = item.nodes
-          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
-          const desiredRotation = computeArcRotation(weight)
+          const desiredRotation = rotationFromArcAngle(target.angle)
           const currentRotation = Number(item.arcRotation || 0)
           const deltaRotation = desiredRotation - currentRotation
           const rotDeg = (deltaRotation * 180) / Math.PI
-          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
-          const pivotLocal = pivotFromNodes(nodes, item.center, normal)
 
           for (const node of nodes) {
-            const localX = Number(node.x || 0) - item.center.x - pivotLocal.x
-            const localY = Number(node.y || 0) - item.center.y - pivotLocal.y
-            const scaledX = localX * sizeRatio
-            const scaledY = localY * sizeRatio
+            const localX = Number(node.x || 0) - item.center.x
+            const localY = Number(node.y || 0) - item.center.y
+            const scaledX = localX * scaleRatio
+            const scaledY = localY * scaleRatio
             const rotated = rotateVector(scaledX, scaledY, deltaRotation)
-            const nextMeta = scaleNodeMeta(node, sizeRatio)
+            const nextMeta = scaleNodeMeta(node, scaleRatio)
             patchById[node.id] = {
               x: target.x + rotated.x,
               y: target.y + rotated.y,
@@ -4347,19 +4340,16 @@ export const useGuideStore = defineStore('guide-editor', {
 
           const newGroupId = groupUid()
           const ratio = Number(template.sizeIn) ? nextSize / Number(template.sizeIn) : 1
-          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
-          const desiredRotation = computeArcRotation(weight)
+          const desiredRotation = rotationFromArcAngle(target.angle)
           const currentRotation = Number(template.arcRotation || 0)
           const deltaRotation = desiredRotation - currentRotation
           const rotDeg = (deltaRotation * 180) / Math.PI
-          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
-          const pivotLocal = pivotFromLocal(template.nodes, normal)
 
           const nextNodes = template.nodes.map((source) => {
             const node = deepClone(source.base)
             const meta = scaleNodeMeta(node, ratio)
-            const localX = Number(source.localX || 0) - pivotLocal.x
-            const localY = Number(source.localY || 0) - pivotLocal.y
+            const localX = Number(source.localX || 0)
+            const localY = Number(source.localY || 0)
             const scaledX = localX * ratio
             const scaledY = localY * ratio
             const rotated = rotateVector(scaledX, scaledY, deltaRotation)
@@ -4777,17 +4767,6 @@ function groupBoundsForNodes(nodes = [], symbols = []) {
   }
 }
 
-function averageSpacing(values = []) {
-  const list = values.map((v) => Number(v)).filter((v) => Number.isFinite(v))
-  if (list.length < 2) return 0
-  list.sort((a, b) => b - a)
-  let sum = 0
-  for (let i = 1; i < list.length; i += 1) {
-    sum += Math.abs(list[i - 1] - list[i])
-  }
-  return sum / (list.length - 1)
-}
-
 function estimateGroupSizeIn(nodes = []) {
   let sum = 0
   let count = 0
@@ -4847,10 +4826,19 @@ function buildArcGeometry({ centerX, baseY, widthPx, heightPx }) {
   const half = w / 2
   const radius = (h * h + half * half) / (2 * h)
   if (!Number.isFinite(radius) || radius <= 0) return null
-  const centerY = Number(baseY) + (radius - h)
-  const startAngle = Math.atan2(Number(baseY) - centerY, -half)
-  const endAngle = Math.atan2(Number(baseY) - centerY, half)
-  const arcLength = Math.abs(endAngle - startAngle) * radius
+  let centerY = Number(baseY) + (radius - h)
+  let startAngle = Math.atan2(Number(baseY) - centerY, -half)
+  let endAngle = Math.atan2(Number(baseY) - centerY, half)
+  let arcLength = Math.abs(endAngle - startAngle) * radius
+
+  const midAngle = (startAngle + endAngle) / 2
+  const midY = centerY + radius * Math.sin(midAngle)
+  if (Number.isFinite(midY) && midY > Number(baseY)) {
+    centerY = Number(baseY) - (radius - h)
+    startAngle = Math.atan2(Number(baseY) - centerY, -half)
+    endAngle = Math.atan2(Number(baseY) - centerY, half)
+    arcLength = Math.abs(endAngle - startAngle) * radius
+  }
   return {
     centerX: Number(centerX),
     centerY,
@@ -4886,43 +4874,52 @@ function buildArcPointsWeighted(geometry, weights = []) {
   return points
 }
 
-function buildWeightSequence(weights, count) {
-  const list = Array.isArray(weights) ? weights : []
-  if (!list.length) return []
+function buildArcPointsEven(geometry, count) {
   const total = Math.max(1, Math.round(Number(count) || 0))
-  const result = []
-  for (let i = 0; i < total; i += 1) {
-    result.push(list[i % list.length])
+  if (!geometry) return []
+  const start = Number(geometry.startAngle)
+  const end = Number(geometry.endAngle)
+  const points = []
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return points
+
+  if (total === 1) {
+    const angle = (start + end) / 2
+    points.push({
+      x: geometry.centerX + geometry.radius * Math.cos(angle),
+      y: geometry.centerY + geometry.radius * Math.sin(angle),
+      angle,
+    })
+    return points
   }
-  return result
+
+  for (let i = 0; i < total; i += 1) {
+    const t = i / (total - 1)
+    const angle = start + t * (end - start)
+    points.push({
+      x: geometry.centerX + geometry.radius * Math.cos(angle),
+      y: geometry.centerY + geometry.radius * Math.sin(angle),
+      angle,
+    })
+  }
+  return points
 }
 
-function averageWeight(weights = []) {
-  const list = weights.map((w) => Number(w)).filter((w) => Number.isFinite(w) && w > 0)
-  if (!list.length) return 0
-  return list.reduce((sum, w) => sum + w, 0) / list.length
+function rotationFromArcAngle(angle) {
+  const value = Number(angle)
+  return Number.isFinite(value) ? value : 0
 }
 
-function clusterEffectiveWidth(bounds) {
-  if (!bounds) return 0
-  const w = Number(bounds.width)
-  const h = Number(bounds.height)
-  if (!Number.isFinite(w) || !Number.isFinite(h)) return 0
-  return Math.max(w, h)
-}
-
-function computeArcRotation(weight) {
-  const t = clamp(Number(weight || 0), 0, 1)
-  const max = 0.6
-  return max * t
-}
-
-function arcRotationWeight(y, baseY, heightPx) {
-  const top = Number(baseY) - Number(heightPx)
-  if (!Number.isFinite(top) || !Number.isFinite(y) || !Number.isFinite(heightPx) || heightPx <= 0)
-    return 1
-  const raw = clamp((Number(baseY) - Number(y)) / Number(heightPx), 0, 1)
-  return raw * raw * (3 - 2 * raw)
+function maxClusterRadiusFromBounds(items = []) {
+  let max = 0
+  for (const item of Array.isArray(items) ? items : []) {
+    const bounds = item?.bounds
+    if (!bounds) continue
+    const w = Number(bounds.width)
+    const h = Number(bounds.height)
+    if (!Number.isFinite(w) || !Number.isFinite(h)) continue
+    max = Math.max(max, Math.max(w, h) / 2)
+  }
+  return max
 }
 
 function rotateVector(dx, dy, angle) {
@@ -4932,53 +4929,6 @@ function rotateVector(dx, dy, angle) {
     x: dx * cos - dy * sin,
     y: dx * sin + dy * cos,
   }
-}
-
-function arcNormal(centerX, centerY, point) {
-  const vx = Number(centerX) - Number(point?.x)
-  const vy = Number(centerY) - Number(point?.y)
-  const len = Math.hypot(vx, vy)
-  if (!Number.isFinite(len) || len <= 0) return { x: 0, y: -1 }
-  return { x: vx / len, y: vy / len }
-}
-
-function pivotFromNodes(nodes = [], center, normal) {
-  const unit = normalizeVector(normal)
-  if (!unit) return { x: 0, y: 0 }
-  const cx = Number(center?.x || 0)
-  const cy = Number(center?.y || 0)
-  let maxProj = -Infinity
-  for (const node of nodes) {
-    const dx = Number(node?.x || 0) - cx
-    const dy = Number(node?.y || 0) - cy
-    const proj = dx * unit.x + dy * unit.y
-    if (Number.isFinite(proj)) maxProj = Math.max(maxProj, proj)
-  }
-  if (!Number.isFinite(maxProj)) maxProj = 0
-  return { x: unit.x * maxProj, y: unit.y * maxProj }
-}
-
-function pivotFromLocal(nodes = [], normal) {
-  const unit = normalizeVector(normal)
-  if (!unit) return { x: 0, y: 0 }
-  let maxProj = -Infinity
-  for (const node of nodes) {
-    const dx = Number(node?.localX || 0)
-    const dy = Number(node?.localY || 0)
-    const proj = dx * unit.x + dy * unit.y
-    if (Number.isFinite(proj)) maxProj = Math.max(maxProj, proj)
-  }
-  if (!Number.isFinite(maxProj)) maxProj = 0
-  return { x: unit.x * maxProj, y: unit.y * maxProj }
-}
-
-function normalizeVector(vec) {
-  if (!vec) return null
-  const x = Number(vec.x || 0)
-  const y = Number(vec.y || 0)
-  const len = Math.hypot(x, y)
-  if (!Number.isFinite(len) || len <= 0) return null
-  return { x: x / len, y: y / len }
 }
 
 function scaleNodeMeta(node, ratio) {
