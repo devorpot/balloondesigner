@@ -266,11 +266,11 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 import { useCatalogStore } from '@/stores/catalog.store'
 import { jsPDF } from 'jspdf'
 
-const editor = useEditorStore()
+const editor = useActiveEditorStore()
 const catalog = useCatalogStore()
 
 const filters = reactive({

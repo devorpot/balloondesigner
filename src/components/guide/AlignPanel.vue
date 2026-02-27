@@ -1,8 +1,8 @@
 <template>
   <div class="card border-0 shadow-sm align-panel">
-    <div class="card-body">
-      <div class="d-flex align-items-center justify-content-between mb-2">
-        <div class="fw-bold">Organizar</div>
+    <div class="card-body panel-body">
+      <div class="panel-head">
+        <div class="panel-title">Organizar</div>
         <button
           class="btn btn-sm btn-outline-secondary icon-btn"
           type="button"
@@ -95,6 +95,26 @@
             :class="{ active: lastDistribute === 'y' }"
           >
             <i class="bi bi-distribute-vertical"></i>
+          </button>
+        </div>
+      </div>
+
+      <div v-show="!collapsed" class="section mt-3">
+        <div class="section-label">Transformar</div>
+        <div class="row g-2 distribute-grid">
+          <button
+            @click="flip('x')"
+            class="btn btn-sm btn-outline-secondary"
+            :disabled="selectedCount < 1"
+          >
+            <i class="bi bi-arrow-left-right"></i>
+          </button>
+          <button
+            @click="flip('y')"
+            class="btn btn-sm btn-outline-secondary"
+            :disabled="selectedCount < 1"
+          >
+            <i class="bi bi-arrow-up-down"></i>
           </button>
         </div>
       </div>
@@ -193,6 +213,11 @@ function distribute(axis) {
   if (selectedCount.value < 3) return
   store.distributeSelection(axis)
   lastDistribute.value = axis
+}
+
+function flip(axis) {
+  if (selectedCount.value < 1) return
+  store.flipSelection?.({ axis })
 }
 
 function toggleStackPreview() {

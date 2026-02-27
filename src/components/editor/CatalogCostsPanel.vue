@@ -132,10 +132,10 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useCatalogStore } from '@/stores/catalog.store'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 
 const catalog = useCatalogStore()
-const editor = useEditorStore()
+const editor = useActiveEditorStore()
 
 /* Auto init */
 onMounted(() => {

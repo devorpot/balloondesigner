@@ -50,9 +50,9 @@
 
 <script setup>
 import { computed } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 
-const store = useEditorStore()
+const store = useActiveEditorStore()
 
 const past = computed(() => store.history?.past || [])
 const currentIndex = computed(() => Math.max(0, past.value.length - 1))

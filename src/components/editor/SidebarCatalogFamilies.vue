@@ -1,13 +1,11 @@
 <template>
   <div class="card border-0 shadow-sm catalog">
     <div class="card-body">
-      <!-- Header -->
       <div class="head">
         <div class="d-flex align-items-start justify-content-between gap-2">
           <div class="minw0">
-            <div class="fw-bold">{{ title }}</div>
-            <div class="text-muted panel-subtitle">{{ subtitle }}</div>
-            <div v-if="legacyNote" class="text-muted xsmall mt-1">{{ legacyNote }}</div>
+            <div class="fw-bold">Catálogo por familia</div>
+            <div class="text-muted panel-subtitle">Familias y tipos de globo</div>
           </div>
           <button
             class="btn btn-sm btn-outline-secondary icon-btn"
@@ -21,14 +19,22 @@
 
         <div v-show="!collapsed" class="mt-3">
           <div class="text-muted panel-subtitle">
-            Selecciona una familia y arrastra el globo al lienzo.
+            Selecciona una familia y elige el tipo de globo.
           </div>
-          <div class="mt-2">
+          <div class="mt-2 d-flex gap-2 flex-wrap align-items-center">
             <select v-model="selectedFamily" class="form-select form-select-sm w-auto">
               <option v-for="family in families" :key="family" :value="family">
                 {{ family }}
               </option>
             </select>
+            <div class="palette" v-if="selectedCategory?.colors?.length">
+              <span
+                v-for="color in selectedCategory.colors"
+                :key="color"
+                class="palette-dot"
+                :style="{ backgroundColor: color }"
+              ></span>
+            </div>
           </div>
           <div class="mt-2">
             <button
@@ -44,95 +50,81 @@
         </div>
       </div>
 
-      <!-- List -->
       <div v-show="!collapsed" class="types">
-        <article
-          v-for="category in visibleCategories"
-          :key="category.id"
-          class="category-tree"
-          :class="{ collapsed: !categoryIsExpanded(category.id) }"
-        >
-          <header class="category-head" @click="toggleCategory(category.id)">
-            <div class="category-info">
-              <div class="d-flex align-items-center gap-2">
-                <span class="category-toggle" aria-hidden="true">
-                  {{ categoryIsExpanded(category.id) ? '▼' : '▶' }}
-                </span>
-                <div class="fw-semibold">{{ category.label }}</div>
-              </div>
-              <div class="text-muted small d-flex gap-2 align-items-center">
-                <span>{{ category.measurementLabel }}</span>
-                <span v-if="category.types.length">· {{ category.types.length }} tipos</span>
-              </div>
-            </div>
-
-            <div class="palette">
-              <span
-                v-for="color in category.colors"
-                :key="color"
-                class="palette-dot"
-                :style="{ backgroundColor: color }"
-              ></span>
-            </div>
+        <article v-if="selectedCategory" class="category-tree">
+          <header class="category-title">
+            <div class="family-title">{{ selectedCategory.label }}</div>
+            <div class="family-subtitle">{{ familySubtitle }}</div>
           </header>
 
-          <transition name="fade" mode="out-in">
-            <div v-if="categoryIsExpanded(category.id)" class="category-types tree">
-              <div
-                v-for="t in category.types"
-                :key="t.id"
-                class="type-row"
-                draggable="true"
-                @dragstart="onDragStartType(t, $event)"
-              >
-                <div class="type-row__header">
-                  <div class="fw-semibold text-truncate">{{ t.name }}</div>
-                  <div class="text-muted xsmall">{{ measurementForType(t, category) }}</div>
-                </div>
-
-                <div class="type-row__body">
-                  <div class="type-row__preview" :title="`Preview ${t.id}`">
-                    <img
-                      class="type-thumb"
-                      alt="Preview"
-                      src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='40' height='40' rx='10' fill='%23f1f3f5'/><circle cx='20' cy='20' r='10' fill='%23d0d5dd'/></svg>"
-                    />
+          <div class="category-types tree">
+            <section v-for="group in groupedTypes" :key="group.key" class="type-group">
+              <button class="type-group__head" type="button" @click="toggleGroup(group.key)">
+                <div class="type-group__title">{{ group.label }}</div>
+                <span class="type-group__chevron" aria-hidden="true">
+                  {{ groupIsExpanded(group.key) ? '▾' : '▸' }}
+                </span>
+              </button>
+              <div v-if="groupIsExpanded(group.key)" class="type-group__body">
+                <div
+                  v-for="t in group.types"
+                  :key="t.id"
+                  class="type-row"
+                  draggable="true"
+                  @dragstart="onDragStartType(t, $event)"
+                >
+                  <div class="type-row__header">
+                    <div class="fw-semibold text-truncate">{{ t.name }}</div>
+                    <div class="text-muted xsmall">{{ sizeLabel(t) }}</div>
                   </div>
 
-                  <div class="type-row__meta">
-                    <div class="type-row__colors" v-if="t.colors?.length">
-                      <span
-                        v-for="color in t.colors"
-                        :key="color"
-                        class="color-dot"
-                        :style="{ backgroundColor: color }"
-                      ></span>
+                  <div class="type-row__body">
+                    <div class="type-row__preview" :title="`Preview ${t.id}`">
+                      <img
+                        class="type-thumb"
+                        alt="Preview"
+                        src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><rect width='40' height='40' rx='10' fill='%23f1f3f5'/><circle cx='20' cy='20' r='10' fill='%23d0d5dd'/></svg>"
+                      />
                     </div>
-                    <div class="text-muted xsmall" v-else>Sin colores definidos</div>
-                  </div>
 
-                  <div class="type-row__actions">
-                    <button
-                      class="btn btn-sm btn-light icon-btn"
-                      type="button"
-                      title="Agregar"
-                      @click.stop="addType(t)"
-                    >
-                      ＋
-                    </button>
-                    <button
-                      class="btn btn-sm btn-light icon-btn"
-                      type="button"
-                      title="Agregar al centro visible"
-                      @click.stop="addType(t, { center: true })"
-                    >
-                      ◎
-                    </button>
+                    <div class="type-row__meta">
+                      <div class="type-row__colors" v-if="t.colors?.length">
+                        <span
+                          v-for="color in t.colors"
+                          :key="color"
+                          class="color-dot"
+                          :style="{ backgroundColor: color }"
+                        ></span>
+                      </div>
+                      <div class="text-muted xsmall" v-else>Sin colores definidos</div>
+                      <div class="text-muted xsmall" v-if="inflationLabel(t)">
+                        {{ inflationLabel(t) }}
+                      </div>
+                    </div>
+
+                    <div class="type-row__actions">
+                      <button
+                        class="btn btn-sm btn-light icon-btn"
+                        type="button"
+                        title="Agregar"
+                        @click.stop="addType(t)"
+                      >
+                        ＋
+                      </button>
+                      <button
+                        class="btn btn-sm btn-light icon-btn"
+                        type="button"
+                        title="Agregar al centro visible"
+                        @click.stop="addType(t, { center: true })"
+                      >
+                        ◎
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </transition>
+            </section>
+          </div>
         </article>
 
         <div v-if="!categories.length" class="empty text-muted small">
@@ -148,23 +140,15 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useCatalogStore } from '@/stores/catalog.store'
 import { useActiveEditorStore } from '@/stores/editor-context'
 
-const { title, subtitle, legacyNote } = defineProps({
-  title: {
-    type: String,
-    default: 'Catálogo',
-  },
-  subtitle: {
-    type: String,
-    default: 'Tipos y materiales',
-  },
-  legacyNote: {
-    type: String,
-    default: '',
-  },
-})
-
 const catalog = useCatalogStore()
 const editor = useActiveEditorStore()
+
+const TYPE_LABELS = {
+  Redondo: 'Globos redondos',
+  Twisting: 'Globos Twisting (largos)',
+  Especial: 'Globos Especiales',
+}
+const TYPE_ORDER = ['Redondo', 'Twisting', 'Especial']
 
 onMounted(() => {
   if (Array.isArray(catalog.categories) && catalog.categories.length) return
@@ -192,14 +176,41 @@ onMounted(() => {
 const currentColor = computed(() => editor.selectedNode?.color || '#ff3b30')
 const categories = computed(() => catalog.categories || [])
 const families = computed(() => categories.value.map((category) => category.family))
-const collapsed = ref(false)
 const selectedFamily = ref('')
+const collapsed = ref(false)
 const lastAddedTypeId = ref('')
 const lastAddedColor = ref('')
-const visibleCategories = computed(() => {
-  if (!selectedFamily.value) return categories.value
-  return categories.value.filter((category) => category.family === selectedFamily.value)
+
+const selectedCategory = computed(() => {
+  const cats = categories.value || []
+  if (!cats.length) return null
+  if (!selectedFamily.value) return cats[0]
+  return cats.find((c) => c.family === selectedFamily.value) || cats[0]
 })
+
+const familySubtitle = computed(() => selectedCategory.value?.subtitle || 'Sólido y versátil')
+
+const expandedGroups = ref(new Set())
+
+const groupedTypes = computed(() => {
+  const list = selectedCategory.value?.types || []
+  const buckets = new Map()
+  for (const t of list) {
+    const key = String(t?.balloonType || 'Sin tipo')
+    if (!buckets.has(key)) buckets.set(key, [])
+    buckets.get(key).push(t)
+  }
+
+  const orderedKeys = [...TYPE_ORDER, ...[...buckets.keys()].filter((k) => !TYPE_ORDER.includes(k))]
+  return orderedKeys
+    .filter((key) => buckets.has(key))
+    .map((key) => ({
+      key,
+      label: TYPE_LABELS[key] || `Globos ${key}`,
+      types: buckets.get(key),
+    }))
+})
+
 const quickAddType = computed(() => {
   if (lastAddedTypeId.value) {
     for (const category of categories.value || []) {
@@ -207,31 +218,32 @@ const quickAddType = computed(() => {
       if (match) return match
     }
   }
-  const cats = visibleCategories.value || []
-  for (const category of cats) {
-    if (category?.types?.length) return category.types[0]
-  }
+  const cat = selectedCategory.value
+  if (cat?.types?.length) return cat.types[0]
   return null
 })
+
 const quickAddColor = computed(() => lastAddedColor.value || currentColor.value)
-const expandedCategories = ref(new Set())
 
 watch(
   categories,
   (cats) => {
-    const next = new Set(expandedCategories.value)
-    for (const cat of cats || []) {
-      if (cat?.id) next.add(cat.id)
-    }
-    expandedCategories.value = next
     if (!selectedFamily.value && cats?.length) selectedFamily.value = cats[0].family
+  },
+  { immediate: true },
+)
+
+watch(
+  groupedTypes,
+  (groups) => {
+    expandedGroups.value = new Set((groups || []).map((group) => group.key))
   },
   { immediate: true },
 )
 
 onMounted(() => {
   try {
-    const saved = localStorage.getItem('panel_collapsed_catalog')
+    const saved = localStorage.getItem('panel_collapsed_catalog_families')
     if (saved !== null) collapsed.value = saved === 'true'
   } catch {
     // ignore
@@ -240,25 +252,41 @@ onMounted(() => {
 
 watch(collapsed, (value) => {
   try {
-    localStorage.setItem('panel_collapsed_catalog', String(value))
+    localStorage.setItem('panel_collapsed_catalog_families', String(value))
   } catch {
     // ignore
   }
 })
 
-function toggleCategory(id) {
-  const next = new Set(expandedCategories.value)
-  if (next.has(id)) next.delete(id)
-  else next.add(id)
-  expandedCategories.value = next
+function sizeLabel(type) {
+  const parts = []
+  if (Number.isFinite(type?.sizeIn)) parts.push(`${type.sizeIn}"`)
+  if (Number.isFinite(type?.sizeCm)) parts.push(`${type.sizeCm} cm`)
+  if (type?.sizeCode) parts.push(String(type.sizeCode))
+  return parts.join(' · ') || '—'
 }
 
-function categoryIsExpanded(id) {
-  return expandedCategories.value.has(id)
+function inflationLabel(type) {
+  const infl = type?.inflation
+  if (!infl || typeof infl !== 'object') return ''
+  const inMin = Number(infl.minIn)
+  const inMax = Number(infl.maxIn)
+  const cmMin = Number(infl.minCm)
+  const cmMax = Number(infl.maxCm)
+  if (Number.isFinite(inMin) && Number.isFinite(inMax)) return `Inflado: ${inMin}-${inMax}"`
+  if (Number.isFinite(cmMin) && Number.isFinite(cmMax)) return `Inflado: ${cmMin}-${cmMax} cm`
+  return ''
 }
 
-function measurementForType(type, category) {
-  return typeof category?.measurement === 'function' ? category.measurement(type) : '—'
+function toggleGroup(key) {
+  const next = new Set(expandedGroups.value)
+  if (next.has(key)) next.delete(key)
+  else next.add(key)
+  expandedGroups.value = next
+}
+
+function groupIsExpanded(key) {
+  return expandedGroups.value.has(key)
 }
 
 function defaultMetaForType(type) {
@@ -365,11 +393,6 @@ function onDragStartType(t, e) {
   padding-bottom: 10px;
 }
 
-.hint {
-  border-top: 1px dashed rgba(0, 0, 0, 0.12);
-  padding-top: 10px;
-}
-
 .types {
   display: flex;
   flex-direction: column;
@@ -385,37 +408,67 @@ function onDragStartType(t, e) {
   overflow: hidden;
 }
 
-.category-tree + .category-tree {
-  margin-top: 12px;
+.category-title {
+  text-align: center;
+  padding: 18px 16px 6px;
 }
 
-.category-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  cursor: pointer;
+.family-title {
+  font-size: 1.2rem;
+  font-weight: 700;
 }
 
-.category-toggle {
-  font-size: 12px;
-  display: inline-flex;
-  width: 16px;
-  justify-content: center;
+.family-subtitle {
+  font-size: 0.85rem;
+  color: #6c757d;
 }
 
 .category-types.tree {
-  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.type-group {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 16px 16px;
 }
 
-.category-tree.collapsed .category-types.tree {
-  padding: 0 16px;
-  border-top: none;
+.type-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  text-align: left;
+  padding: 16px 18px;
+  border-radius: 8px;
+  background: #f58220;
+  color: #fff;
+  font-weight: 600;
+}
+
+.type-group__head:hover {
+  background: #ee7b1c;
+}
+
+.type-group__title {
+  font-size: 1rem;
+}
+
+.type-group__chevron {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.type-group__body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 8px 6px;
 }
 
 .type-row {
@@ -475,8 +528,8 @@ function onDragStartType(t, e) {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .type-row__colors {
@@ -515,15 +568,5 @@ function onDragStartType(t, e) {
   height: 12px;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.1);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
 }
 </style>

@@ -1,4 +1,4 @@
-// editor.store.js
+// structure.store.js
 import { defineStore } from 'pinia'
 import { toRaw } from 'vue'
 import {
@@ -74,9 +74,9 @@ function serializeGuideNode(node) {
   }
 }
 
-const STORAGE_KEY = 'ballon_designer_autosave_v1'
+const STORAGE_KEY = 'ballon_designer_autosave_structure_v1'
 
-export const useEditorStore = defineStore('editor', {
+export const useStructureStore = defineStore('structure-editor', {
   state: () => ({
     nodes: [],
     symbols: [],
@@ -2316,7 +2316,7 @@ export const useEditorStore = defineStore('editor', {
     // ===== Autosave =====
     initAutosave({ skipRestore = false } = {}) {
       try {
-        const saved = localStorage.getItem('autosave_enabled')
+        const saved = localStorage.getItem('autosave_enabled_structure')
         if (saved !== null) this.autosave.enabled = saved === 'true'
         else this.autosave.enabled = true
       } catch {
@@ -2358,7 +2358,7 @@ export const useEditorStore = defineStore('editor', {
 
     flushAutosaveNow() {
       // safe si se llama como event handler
-      const store = this?.$id ? this : useEditorStore()
+      const store = this?.$id ? this : useStructureStore()
 
       if (!store.autosave.enabled) return
       if (!store.autosave.isDirty) return
@@ -2385,7 +2385,7 @@ export const useEditorStore = defineStore('editor', {
       if (this.autosave.enabled === next) return
       this.autosave.enabled = next
       try {
-        localStorage.setItem('autosave_enabled', String(next))
+        localStorage.setItem('autosave_enabled_structure', String(next))
       } catch {
         // ignore
       }

@@ -36,6 +36,27 @@
     </div>
 
     <div class="control-group">
+      <button
+        class="control-btn wide"
+        type="button"
+        :class="{ active: !isBackView }"
+        title="Vista frente"
+        @click="setViewSide('front')"
+      >
+        Frente
+      </button>
+      <button
+        class="control-btn wide"
+        type="button"
+        :class="{ active: isBackView }"
+        title="Vista atras"
+        @click="setViewSide('back')"
+      >
+        Atras
+      </button>
+    </div>
+
+    <div class="control-group">
       <button class="control-btn" type="button" title="Reset view" @click="store.resetView()">
         <i class="bi bi-arrow-counterclockwise"></i>
       </button>
@@ -45,16 +66,39 @@
 
 <script setup>
 import { computed } from 'vue'
+import { PX_PER_CM } from '@/constants/canvas'
 import { useActiveEditorStore } from '@/stores/editor-context'
 
 const store = useActiveEditorStore()
 
 const panMode = computed(() => !!store.ui?.panMode)
 const zoomLabel = computed(() => `${Math.round((store.view?.scale || 1) * 100)}%`)
-const displayScaleLabel = computed(() => {
-  const ds = Number(store.canvas?.displayScale || 1)
-  return `${Math.round(ds * 100)}%`
-})
+const displayScale = computed(() => Number(store.canvas?.displayScale || 1))
+const displayScaleLabel = computed(() => `${Math.round(displayScale.value * 100)}%`)
+const isBackView = computed(() => store.ui?.viewSide === 'back')
+const renderScale = computed(() => (store.view?.scale || 1) * displayScale.value)
+const viewOffsetX = computed(() => (store.view?.x || 0) * displayScale.value)
+const viewOffsetY = computed(() => (store.view?.y || 0) * displayScale.value)
+const canvasWidth = computed(() => Number(store.canvas?.widthCm || 0) * PX_PER_CM)
+
+function toCanvasX(screenX) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  const raw = (screenX - viewOffsetX.value) / rs
+  return isBackView.value ? canvasWidth.value - raw : raw
+}
+
+function toCanvasY(screenY) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  return (screenY - viewOffsetY.value) / rs
+}
+
+function viewXForCanvasPoint(screenX, canvasX, scale) {
+  const base = screenX / displayScale.value
+  if (isBackView.value) return base - (canvasWidth.value - canvasX) * scale
+  return base - canvasX * scale
+}
 
 let zoomRaf = null
 let zoomTarget = null
@@ -97,6 +141,10 @@ function setPan(value) {
   store.setPanMode(!!value)
 }
 
+function setViewSide(side) {
+  if (typeof store.setViewSide === 'function') store.setViewSide(side)
+}
+
 function zoom(direction) {
   const stage = store.stage
   if (!stage) return
@@ -115,14 +163,14 @@ function zoom(direction) {
   const cy = Number(height || 0) / 2
 
   const pointTo = {
-    x: (cx - store.view.x) / currentScale,
-    y: (cy - store.view.y) / currentScale,
+    x: toCanvasX(cx),
+    y: toCanvasY(cy),
   }
 
   scheduleView({
     scale: nextScale,
-    x: cx - pointTo.x * nextScale,
-    y: cy - pointTo.y * nextScale,
+    x: viewXForCanvasPoint(cx, pointTo.x, nextScale),
+    y: cy / displayScale.value - pointTo.y * nextScale,
   })
 }
 
@@ -145,10 +193,15 @@ function zoomToFit() {
 
   const scale = Math.min(w / box.width, h / box.height)
 
+  const centerX = box.x + box.width / 2
+  const centerY = box.y + box.height / 2
+  const targetX = viewXForCanvasPoint(w / 2, centerX, scale)
+  const targetY = h / (2 * displayScale.value) - centerY * scale
+
   scheduleView({
     scale,
-    x: -box.x * scale + (w - box.width * scale) / 2,
-    y: -box.y * scale + (h - box.height * scale) / 2,
+    x: targetX,
+    y: targetY,
   })
 }
 </script>
@@ -189,6 +242,14 @@ function zoomToFit() {
   background: #12a4b7;
   color: #fff;
   box-shadow: 0 6px 12px -10px rgba(18, 164, 183, 0.6);
+}
+
+.control-btn.wide {
+  width: auto;
+  padding: 0 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.2px;
 }
 
 .zoom-indicator {

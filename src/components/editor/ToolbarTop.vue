@@ -1,5 +1,8 @@
 <template>
   <div class="d-flex gap-2 align-items-center w-100">
+    <button class="btn btn-sm btn-outline-secondary" type="button" @click="goHome">
+      <i class="bi bi-house-door me-1"></i> Inicio
+    </button>
     <!-- Archivo -->
     <div class="btn-group btn-group-sm" role="group">
       <button
@@ -12,9 +15,7 @@
 
       <ul class="dropdown-menu">
         <li>
-          <button class="dropdown-item" type="button" @click="store.newDesign()">
-            Nuevo diseño
-          </button>
+          <button class="dropdown-item" type="button" @click="newDesign">Nuevo diseño</button>
         </li>
 
         <li>
@@ -52,10 +53,40 @@
           <button class="dropdown-item" type="button" @click="exportJson">Exportar JSON</button>
         </li>
 
+        <li v-if="guideMode">
+          <button class="dropdown-item" type="button" @click="exportGuideJson(false)">
+            Exportar guia JSON
+          </button>
+        </li>
+
+        <li v-if="guideMode">
+          <button class="dropdown-item" type="button" @click="exportGuideJson(true)">
+            Exportar guia JSON (solo visibles)
+          </button>
+        </li>
+
         <li>
           <label class="dropdown-item file-item">
             Importar JSON
             <input type="file" accept="application/json" class="d-none" @change="onImportFile" />
+          </label>
+        </li>
+
+        <li v-if="gridMode">
+          <button class="dropdown-item" type="button" @click="requestGuideImport">
+            Importar guia JSON
+          </button>
+        </li>
+
+        <li v-if="guideMode">
+          <label class="dropdown-item file-item">
+            Importar guia JSON
+            <input
+              type="file"
+              accept="application/json"
+              class="d-none"
+              @change="onImportGuideFile"
+            />
           </label>
         </li>
       </ul>
@@ -316,15 +347,21 @@
 
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Modal } from 'bootstrap'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
+import { useProjectsStore } from '@/stores/projects.store'
 import MaterialsPanel from '@/components/editor/MaterialsPanel.vue'
 
-const store = useEditorStore()
+const router = useRouter()
+const store = useActiveEditorStore()
+const projects = useProjectsStore()
 
 const selCount = computed(() => store.selectedIds?.length || 0)
 const canUndo = computed(() => (store.history?.past || []).length > 1)
 const canRedo = computed(() => (store.history?.future || []).length > 0)
+const guideMode = computed(() => projects.activeProject?.template?.type === 'guide-wall')
+const gridMode = computed(() => projects.activeProject?.template?.type === 'grid')
 
 const lockLabel = computed(() => {
   const sel = store.selectedNodes || []
@@ -368,6 +405,44 @@ onBeforeUnmount(() => {
   materialsModal?.hide?.()
   materialsModal = null
 })
+
+function goHome() {
+  router.push('/')
+}
+
+function requestGuideImport() {
+  window.dispatchEvent(new CustomEvent('guide-import-request'))
+}
+
+function newDesign() {
+  const current = projects.activeProject
+  if (current?.template?.type === 'grid') {
+    projects.createProject({
+      name: '',
+      template: { type: 'grid', params: current.template?.params || {} },
+    })
+    router.push('/grid')
+    return
+  }
+  if (current?.template?.type === 'guide-wall') {
+    projects.createProject({
+      name: '',
+      template: { type: 'guide-wall', params: current.template?.params || {} },
+    })
+    router.push('/guide')
+    return
+  }
+  if (current?.template?.type === 'arc') {
+    projects.createProject({
+      name: '',
+      template: { type: 'arc', params: current.template?.params || {} },
+    })
+    router.push('/editor')
+    return
+  }
+  projects.createProject({ name: '', template: null })
+  router.push('/editor')
+}
 
 function add() {
   store.addNode({ useStackGrid: true })
@@ -480,6 +555,14 @@ function exportJson() {
   store.exportJson({ fileName })
 }
 
+function exportGuideJson(visibleOnly = false) {
+  const suggested = String(projects.activeProject?.name || '').trim() || 'guia'
+  const name = prompt('Nombre del archivo JSON:', `${suggested}.json`)
+  if (name === null) return
+  const fileName = (name || `${suggested}.json`).trim() || `${suggested}.json`
+  store.exportGuideJson({ fileName, visibleOnly })
+}
+
 async function onImportFile(e) {
   const file = e.target.files?.[0] || null
   e.target.value = '' // permitir reimportar el mismo archivo
@@ -491,6 +574,21 @@ async function onImportFile(e) {
     store.importJsonObject(data)
   } catch {
     window.alert('No se pudo importar el JSON. Verifica que sea válido.')
+  }
+}
+
+async function onImportGuideFile(e) {
+  const file = e.target.files?.[0] || null
+  e.target.value = ''
+  if (!file) return
+
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    const ok = store.importGuideJsonObject(data)
+    if (ok) window.alert('Guia importada correctamente.')
+  } catch {
+    window.alert('No se pudo importar la guia. Verifica que el JSON sea válido.')
   }
 }
 </script>

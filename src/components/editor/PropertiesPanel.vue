@@ -440,10 +440,10 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 import { useCatalogStore } from '@/stores/catalog.store'
 
-const editor = useEditorStore()
+const editor = useActiveEditorStore()
 const catalog = useCatalogStore()
 
 const selected = computed(() => editor.selectedNode)

@@ -115,6 +115,9 @@
           <!-- BG -->
           <v-layer :config="{ listening: false }">
             <v-rect :config="bgConfig" />
+            <v-rect v-if="guideWallRect" :config="guideWallRect" />
+            <v-line v-for="tick in guideWallTicks" :key="tick.key" :config="tick" />
+            <v-text v-for="mark in guideWallMarks" :key="mark.key" :config="mark" />
           </v-layer>
 
           <!-- GRID (fast layer) -->
@@ -198,15 +201,15 @@
                               <template v-else>
                                 <v-ellipse :config="ellipseConfig(nested, { listening: false })" />
                                 <v-ellipse
-                                  v-if="renderQuality !== 'low'"
+                                  v-if="effectiveQuality !== 'low'"
                                   :config="innerShadeConfig(nested)"
                                 />
                                 <v-ellipse
-                                  v-if="renderQuality !== 'low'"
+                                  v-if="effectiveQuality !== 'low'"
                                   :config="shineConfig(nested)"
                                 />
                                 <v-circle
-                                  v-if="renderQuality === 'high'"
+                                  v-if="effectiveQuality === 'high'"
                                   :config="knotConfig(nested)"
                                 />
                               </template>
@@ -217,11 +220,11 @@
                       <template v-else>
                         <v-ellipse :config="ellipseConfig(child, { listening: true })" />
                         <v-ellipse
-                          v-if="renderQuality !== 'low'"
+                          v-if="effectiveQuality !== 'low'"
                           :config="innerShadeConfig(child)"
                         />
-                        <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(child)" />
-                        <v-circle v-if="renderQuality === 'high'" :config="knotConfig(child)" />
+                        <v-ellipse v-if="effectiveQuality !== 'low'" :config="shineConfig(child)" />
+                        <v-circle v-if="effectiveQuality === 'high'" :config="knotConfig(child)" />
                       </template>
                     </v-group>
                   </template>
@@ -247,15 +250,20 @@
                   </template>
                   <template v-else>
                     <v-ellipse :config="ellipseConfig(node)" />
-                    <v-ellipse v-if="renderQuality !== 'low'" :config="innerShadeConfig(node)" />
-                    <v-ellipse v-if="renderQuality !== 'low'" :config="shineConfig(node)" />
-                    <v-circle v-if="renderQuality === 'high'" :config="knotConfig(node)" />
+                    <v-ellipse v-if="effectiveQuality !== 'low'" :config="innerShadeConfig(node)" />
+                    <v-ellipse v-if="effectiveQuality !== 'low'" :config="shineConfig(node)" />
+                    <v-circle v-if="effectiveQuality === 'high'" :config="knotConfig(node)" />
+                    <v-text v-if="guideNumberConfig(node)" :config="guideNumberConfig(node)" />
                   </template>
                 </v-group>
               </template>
             </template>
 
             <v-rect v-if="marquee.active" :config="marqueeRectConfig" />
+            <v-group v-if="selectionLabel" :config="{ listening: false }">
+              <v-rect :config="selectionLabelBg" />
+              <v-text :config="selectionLabel" />
+            </v-group>
             <v-transformer ref="trRef" :config="transformerConfig" />
           </v-layer>
         </v-stage>
@@ -266,13 +274,15 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 import { useCatalogStore } from '@/stores/catalog.store'
 import { MAX_DISPLAY_SCALE, MIN_CANVAS_CM, MIN_DISPLAY_SCALE, PX_PER_CM } from '@/constants/canvas'
 import ContextMenu from '@/components/editor/ContextMenu.vue'
 
-const store = useEditorStore()
+const store = useActiveEditorStore()
+const isGuideStore = computed(() => store?.$id === 'guide-editor')
 const catalog = useCatalogStore()
+const emit = defineEmits(['guide-paint'])
 
 const symbolEdit = computed(() => store.ui?.symbolEdit || { active: false })
 const symbolEditActive = computed(() => !!symbolEdit.value?.active)
@@ -301,15 +311,17 @@ const canUngroup = computed(() => {
 
 const canCreateSymbol = computed(() => {
   const sel = store.selectedNodes || []
-  if (sel.length < 2) return false
+  if (sel.length < 1) return false
   return sel.every((n) => !n?.meta?.guide)
 })
-const canEditSymbol = computed(
-  () => !symbolEditActive.value && store.selectedNode?.kind === 'symbol',
-)
-const canDetachSymbol = computed(
-  () => !symbolEditActive.value && store.selectedNode?.kind === 'symbol',
-)
+const selectedSymbolInstanceId = computed(() => {
+  if (symbolEditActive.value) return null
+  const list = store.selectedNodes || []
+  const symbol = list.find((n) => n?.kind === 'symbol')
+  return symbol?.id || null
+})
+const canEditSymbol = computed(() => !symbolEditActive.value && !!selectedSymbolInstanceId.value)
+const canDetachSymbol = computed(() => !symbolEditActive.value && !!selectedSymbolInstanceId.value)
 const canExitSymbol = computed(() => symbolEditActive.value)
 
 const groupEditMode = computed(() => !!store.ui?.groupEditMode)
@@ -319,16 +331,149 @@ const groupEditGroup = computed(() => {
   const groups = Array.isArray(store.groups) ? store.groups : []
   return groups.find((g) => String(g.id) === String(gid)) || null
 })
-const toolbarVisible = computed(() => (store.selectedIds?.length || 0) === 1 && !!store.selectedId)
-const toolbarStyle = computed(() => {
+const selectionKind = computed(() => {
+  if (symbolEditActive.value) return null
+  const list = store.selectedNodes || []
+  if (!list.length) return null
+  const allGuides = list.every((n) => !!n?.meta?.guideLine)
+  if (allGuides) return 'guide'
+  if (store.selectedGroupId) return 'group'
+  if (list.length === 1 && list[0]?.kind === 'symbol') return 'symbol'
+  return 'object'
+})
+const guideNumberById = computed(() => {
+  if (!isGuideStore.value) return new Map()
+  const map = new Map()
+  let count = 1
+  for (const node of store.visibleNodes || []) {
+    if (!node?.meta?.guideLine) continue
+    map.set(String(node.id), count)
+    count += 1
+  }
+  return map
+})
+const selectionAccent = computed(() => {
+  if (selectionKind.value === 'guide') return '#0d6efd'
+  if (selectionKind.value === 'symbol') return '#f59e0b'
+  if (selectionKind.value === 'group') return '#6c757d'
+  if (selectionKind.value === 'object') return '#198754'
+  return '#12a4b7'
+})
+const selectionLabelText = computed(() => {
+  if (selectionKind.value === 'guide') return ''
+  if (selectionKind.value === 'group') {
+    const group = groupEditGroup.value
+    return group?.name ? `Grupo: ${group.name}` : 'Grupo'
+  }
+  if (selectionKind.value === 'symbol') {
+    const node = store.selectedNode
+    const symbol = symbolsById.value.get(String(node?.symbolId))
+    return symbol?.name ? `Simbolo: ${symbol.name}` : 'Simbolo'
+  }
+  return ''
+})
+const selectionBounds = computed(() => {
+  const list = store.selectedNodes || []
+  if (!list.length) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of list) {
+    const box = nodeBoundingBox(n)
+    minX = Math.min(minX, box.x)
+    minY = Math.min(minY, box.y)
+    maxX = Math.max(maxX, box.x + box.width)
+    maxY = Math.max(maxY, box.y + box.height)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return { left: minX, top: minY, width: maxX - minX, height: maxY - minY }
+})
+const selectionLabel = computed(() => {
+  const text = selectionLabelText.value
+  if (!text) return null
+  const bounds = selectionBounds.value
+  if (!bounds) return null
+  const fontSize = 9
+  const padding = 4
+  const textWidth = Math.max(30, Math.round(text.length * fontSize * 0.6))
+  const width = textWidth + padding * 2
+  const height = fontSize + padding * 2
+  const x = clamp(bounds.left, 6, Math.max(6, canvasWidth.value - width - 6))
+  const y = clamp(bounds.top - height - 6, 6, Math.max(6, canvasHeight.value - height - 6))
+  return {
+    x,
+    y,
+    width,
+    height,
+    text,
+    fontSize,
+    fontFamily: 'Space Grotesk, sans-serif',
+    fill: selectionAccent.value,
+    padding,
+    listening: false,
+    verticalAlign: 'middle',
+  }
+})
+const selectionLabelBg = computed(() => {
+  const label = selectionLabel.value
+  if (!label) return null
+  return {
+    x: label.x,
+    y: label.y,
+    width: label.width,
+    height: label.height,
+    fill: 'rgba(255, 255, 255, 0.9)',
+    stroke: selectionAccent.value,
+    strokeWidth: 1,
+    cornerRadius: 4,
+    listening: false,
+  }
+})
+const symbolToolbarId = computed(() => {
+  if (!symbolEditActive.value) return null
+  const ids = store.ui?.symbolEdit?.selectedIds || []
+  if (ids.length !== 1) return null
+  return ids[0]
+})
+const toolbarNode = computed(() => {
+  if (symbolEditActive.value) return null
   const node = store.selectedNode
+  if (node) return node
+  const ids = store.selectedIds || []
+  if (!ids.length) return null
+  const fallbackId = ids[ids.length - 1]
+  return store.nodes.find((n) => String(n.id) === String(fallbackId)) || null
+})
+const toolbarVisible = computed(() => {
+  if (symbolEditActive.value) return !!symbolToolbarId.value
+  if (store.selectedGroupId && isGuideStore.value && !groupEditMode.value) return true
+  return (store.selectedIds?.length || 0) === 1 && !!toolbarNode.value
+})
+const toolbarStyle = computed(() => {
+  if (symbolEditActive.value) {
+    return { transform: 'translate(12px, 12px)' }
+  }
+  if (store.selectedGroupId && isGuideStore.value && !groupEditMode.value) {
+    const bounds = selectionBounds.value
+    if (!bounds) return {}
+    const rawX = toScreenX(bounds.left + bounds.width / 2)
+    const rawY = toScreenY(bounds.top) - 44
+    const maxW = size.value?.w || 0
+    const maxH = size.value?.h || 0
+    const toolbarW = 220
+    const toolbarH = 44
+    const x = clamp(rawX - toolbarW / 2, 8, Math.max(8, maxW - toolbarW - 8))
+    const y = clamp(rawY, 8, Math.max(8, maxH - toolbarH - 8))
+    return {
+      transform: `translate(${Math.round(x)}px, ${Math.round(y)}px)`,
+    }
+  }
+  const node = toolbarNode.value
   if (!node) return {}
-  const rs = renderScale.value
-  const dx = store.view.x * displayScale.value
-  const dy = store.view.y * displayScale.value
   const { ry } = nodeHalfSize(node)
-  const rawX = node.x * rs + dx
-  const rawY = (node.y - ry) * rs + dy - 44
+  const rawX = toScreenX(node.x)
+  const rawY = toScreenY(node.y - ry) - 44
   const maxW = size.value?.w || 0
   const maxH = size.value?.h || 0
   const toolbarW = 220
@@ -339,7 +484,14 @@ const toolbarStyle = computed(() => {
     transform: `translate(${Math.round(x)}px, ${Math.round(y)}px)`,
   }
 })
-const toolbarAngle = computed(() => Math.round(Number(store.selectedNode?.rotation || 0)))
+const toolbarAngle = computed(() => {
+  if (symbolEditActive.value && symbolToolbarId.value) {
+    const symbol = symbolsById.value.get(String(symbolEdit.value?.symbolId))
+    const node = symbol?.nodes?.find((n) => String(n.id) === String(symbolToolbarId.value))
+    return Math.round(Number(node?.rotation || 0))
+  }
+  return Math.round(Number(toolbarNode.value?.rotation || 0))
+})
 
 const wrap = ref(null)
 const stageRef = ref(null)
@@ -353,6 +505,41 @@ const displayScale = computed(() => {
   return Math.min(MAX_DISPLAY_SCALE, Math.max(MIN_DISPLAY_SCALE, n))
 })
 const renderScale = computed(() => store.view.scale * displayScale.value)
+const isBackView = computed(() => store.ui?.viewSide === 'back')
+const viewOffsetX = computed(() => store.view.x * displayScale.value)
+const viewOffsetY = computed(() => store.view.y * displayScale.value)
+
+function toScreenX(x) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  const base = isBackView.value ? canvasWidth.value - x : x
+  return viewOffsetX.value + base * rs
+}
+
+function toScreenY(y) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  return viewOffsetY.value + y * rs
+}
+
+function toCanvasX(screenX) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  const raw = (screenX - viewOffsetX.value) / rs
+  return isBackView.value ? canvasWidth.value - raw : raw
+}
+
+function toCanvasY(screenY) {
+  const rs = renderScale.value
+  if (!rs) return 0
+  return (screenY - viewOffsetY.value) / rs
+}
+
+function viewXForCanvasPoint(screenX, canvasX, scale) {
+  const base = screenX / displayScale.value
+  if (isBackView.value) return base - (canvasWidth.value - canvasX) * scale
+  return base - canvasX * scale
+}
 
 const stackGridPreview = computed(() => {
   if (!pointerActive.value) return null
@@ -411,12 +598,14 @@ const canvasHeight = computed(() => canvasSpecs.value.height)
 const viewportRect = computed(() => {
   const rs = renderScale.value
   if (!rs) return { x: 0, y: 0, width: canvasWidth.value, height: canvasHeight.value }
-  const dx = store.view.x * displayScale.value
-  const dy = store.view.y * displayScale.value
-  const left = -dx / rs
-  const top = -dy / rs
-  const width = size.value.w / rs
-  const height = size.value.h / rs
+  const leftEdge = toCanvasX(0)
+  const rightEdge = toCanvasX(size.value.w)
+  const topEdge = toCanvasY(0)
+  const bottomEdge = toCanvasY(size.value.h)
+  const left = Math.min(leftEdge, rightEdge)
+  const top = Math.min(topEdge, bottomEdge)
+  const width = Math.abs(rightEdge - leftEdge)
+  const height = Math.abs(bottomEdge - topEdge)
   const margin = 260
   return {
     x: left - margin,
@@ -433,9 +622,9 @@ let ro = null
 const stageConfig = computed(() => ({
   width: size.value.w,
   height: size.value.h,
-  x: store.view.x * displayScale.value,
-  y: store.view.y * displayScale.value,
-  scaleX: renderScale.value,
+  x: viewOffsetX.value + (isBackView.value ? canvasWidth.value * renderScale.value : 0),
+  y: viewOffsetY.value,
+  scaleX: isBackView.value ? -renderScale.value : renderScale.value,
   scaleY: renderScale.value,
 }))
 
@@ -450,9 +639,146 @@ const bgConfig = computed(() => ({
   listening: false,
 }))
 
-const transformerConfig = {
+const guideWallRect = computed(() => {
+  if (!guideWallPx.value || guideWall.value?.enabled === false) return null
+  return {
+    x: 0,
+    y: 0,
+    width: guideWallPx.value.width,
+    height: guideWallPx.value.height,
+    stroke: '#9aa2a6',
+    strokeWidth: 2,
+    dash: [8, 6],
+    fillEnabled: false,
+    listening: false,
+  }
+})
+
+const guideWallMarks = computed(() => {
+  if (!guideWallPx.value || guideWall.value?.enabled === false) return []
+  const marks = []
+  const scale = renderScale.value
+  const width = guideWallPx.value.width
+  const height = guideWallPx.value.height
+  const fontSize = guideLabelSize()
+  const color = '#56606a'
+
+  if (scale < 0.5) {
+    const widthCm = Math.round((width / PX_PER_CM) * 10) / 10
+    const heightCm = Math.round((height / PX_PER_CM) * 10) / 10
+
+    marks.push({
+      key: 'x-total',
+      x: width / 2,
+      y: -18,
+      text: `${widthCm} cm`,
+      fontSize,
+      fill: color,
+      align: 'center',
+    })
+    marks.push({
+      key: 'y-total',
+      x: -6,
+      y: height / 2,
+      text: `${heightCm} cm`,
+      fontSize,
+      fill: color,
+      rotation: -90,
+      align: 'center',
+    })
+    return marks
+  }
+  const stepIn = guideStepIn()
+  if (!stepIn) return []
+  const stepPx = stepIn * 2.54 * PX_PER_CM
+
+  for (let x = stepPx; x < width + 0.5; x += stepPx) {
+    const inches = Math.round((x / PX_PER_CM / 2.54) * 10) / 10
+    const cm = Math.round((x / PX_PER_CM) * 10) / 10
+    marks.push({
+      key: `x-${x}`,
+      x,
+      y: -18,
+      text: `${inches} in / ${cm} cm`,
+      fontSize,
+      fill: color,
+    })
+  }
+
+  for (let y = stepPx; y < height + 0.5; y += stepPx) {
+    const inches = Math.round((y / PX_PER_CM / 2.54) * 10) / 10
+    const cm = Math.round((y / PX_PER_CM) * 10) / 10
+    marks.push({
+      key: `y-${y}`,
+      x: -6,
+      y,
+      text: `${inches} in / ${cm} cm`,
+      fontSize,
+      fill: color,
+      rotation: -90,
+    })
+  }
+
+  return marks
+})
+
+const guideWallTicks = computed(() => {
+  if (!guideWallPx.value || guideWall.value?.enabled === false) return []
+  const ticks = []
+  const scale = renderScale.value
+  const width = guideWallPx.value.width
+  const height = guideWallPx.value.height
+  const stepIn = guideStepIn()
+  if (!stepIn) return []
+  const stepPx = stepIn * 2.54 * PX_PER_CM
+  const color = '#74808b'
+  const len = guideTickSize()
+
+  if (scale < 0.5) return ticks
+
+  for (let x = stepPx; x < width + 0.5; x += stepPx) {
+    ticks.push({ key: `tx-${x}`, points: [x, 0, x, -len], stroke: color, strokeWidth: 1 })
+  }
+
+  for (let y = stepPx; y < height + 0.5; y += stepPx) {
+    ticks.push({ key: `ty-${y}`, points: [0, y, -len, y], stroke: color, strokeWidth: 1 })
+  }
+
+  return ticks
+})
+
+function guideStepIn() {
+  const scale = renderScale.value
+  if (scale >= 1.2) return 5
+  if (scale >= 0.8) return 10
+  if (scale >= 0.6) return 20
+  if (isGuideStore.value) return 40
+  return 0
+}
+
+function guideLabelSize() {
+  const scale = renderScale.value
+  if (scale >= 1.2) return 12
+  if (scale >= 0.8) return 11
+  if (isGuideStore.value) return 16
+  return 10
+}
+
+function guideTickSize() {
+  const scale = renderScale.value
+  if (scale >= 1.2) return 8
+  if (scale >= 0.8) return 6
+  if (isGuideStore.value) return 5
+  return 5
+}
+
+const transformerConfig = computed(() => ({
   rotateEnabled: true,
   enabledAnchors: ['top-left', 'top-right', 'bottom-left', 'bottom-right'],
+  borderStroke: selectionAccent.value,
+  anchorStroke: selectionAccent.value,
+  anchorFill: '#ffffff',
+  anchorSize: 8,
   boundBoxFunc: (oldBox, newBox) => {
     if (newBox.width < 20 || newBox.height < 20) return oldBox
     const node = store.selectedNode
@@ -481,7 +807,7 @@ const transformerConfig = {
       y: cy - nextHeight / 2,
     }
   },
-}
+}))
 
 function getStage() {
   return stageRef.value?.getStage?.() ?? null
@@ -523,13 +849,43 @@ function setCursor(mode) {
 /* ================== PAN MODE ================== */
 const panMode = computed(() => !!store.ui?.panMode)
 const renderQuality = computed(() => store.ui?.renderQuality || 'high')
+const nodeCount = computed(() => (store.visibleNodes || []).length)
+const effectiveQuality = computed(() => {
+  const base = renderQuality.value
+  if (base === 'low') return 'low'
+  const count = nodeCount.value
+  const scale = renderScale.value
+  if (count >= 3000) return 'low'
+  if (count >= 1800 && scale < 0.85) return base === 'high' ? 'medium' : base
+  if (count >= 1200 && scale < 0.65) return base === 'high' ? 'medium' : base
+  return base
+})
+const rasterOnPanEnabled = computed(() => !!store.ui?.rasterOnPan || nodeCount.value >= 1500)
+const guideWall = computed(() => store.ui?.guideWall || null)
+const guideWallPx = computed(() => {
+  if (!guideWall.value) return null
+  const width = Number(guideWall.value.widthCm || 0) * PX_PER_CM
+  const height = Number(guideWall.value.heightCm || 0) * PX_PER_CM
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  return { width, height }
+})
+const guideMaxRadiusPx = computed(() => {
+  if (!guideWall.value) return null
+  const maxRadiusCm = Number(guideWall.value.maxRadiusCm || 0)
+  if (!Number.isFinite(maxRadiusCm) || maxRadiusCm <= 0) return null
+  return maxRadiusCm * PX_PER_CM
+})
 const maxRenderNodes = computed(() => {
   const base = Number(store.ui?.maxVisibleNodes || 2500)
+  const count = nodeCount.value
   const scale = renderScale.value
-  if (scale <= 0.35) return Math.max(300, Math.round(base * 0.25))
-  if (scale <= 0.6) return Math.max(600, Math.round(base * 0.45))
-  if (scale <= 0.9) return Math.max(1000, Math.round(base * 0.7))
-  return base
+  let cap = base
+  if (count >= 4000) cap = Math.min(cap, 1600)
+  else if (count >= 2500) cap = Math.min(cap, 2000)
+  if (scale <= 0.35) return Math.max(300, Math.round(cap * 0.25))
+  if (scale <= 0.6) return Math.max(600, Math.round(cap * 0.45))
+  if (scale <= 0.9) return Math.max(1000, Math.round(cap * 0.7))
+  return cap
 })
 
 watch(panMode, (value) => {
@@ -539,6 +895,7 @@ watch(panMode, (value) => {
 
 /* ================== NODE CONFIGS ================== */
 function groupConfig(n) {
+  const depthOpacity = topViewOpacityFactor(n)
   return {
     id: n.id,
     x: n.x,
@@ -546,10 +903,84 @@ function groupConfig(n) {
     rotation: n.rotation,
     scaleX: n.scaleX,
     scaleY: n.scaleY,
-    opacity: baseOpacity(n.opacity) * dimFactorForNode(n),
-    draggable: !n.locked && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
-    listening: !n?.meta?.guide,
+    opacity: baseOpacity(n.opacity) * dimFactorForNode(n) * depthOpacity,
+    draggable:
+      !n.locked && !n?.meta?.guideFixed && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
+    listening: !n?.meta?.guide || !!n?.meta?.guideLine,
   }
+}
+
+function guideHalfExtents(rx, ry, scaleX, scaleY, rotation) {
+  const angle = ((Number(rotation || 0) % 360) * Math.PI) / 180
+  const cos = Math.abs(Math.cos(angle))
+  const sin = Math.abs(Math.sin(angle))
+  const halfW = Math.abs(rx * scaleX) * cos + Math.abs(ry * scaleY) * sin
+  const halfH = Math.abs(rx * scaleX) * sin + Math.abs(ry * scaleY) * cos
+  return { halfW, halfH, cos, sin }
+}
+
+function clampGuidePosition(node, x, y) {
+  if (!node?.meta?.guideLine) return { x, y }
+  const bounds = guideWallPx.value
+  if (!bounds) return { x, y }
+  const rx = Number(node?.meta?.radiusX ?? 46)
+  const ry = Number(node?.meta?.radiusY ?? 60)
+  const scaleX = Number(node?.scaleX ?? 1)
+  const scaleY = Number(node?.scaleY ?? 1)
+  const rotation = Number(node?.rotation ?? 0)
+  const { halfW, halfH } = guideHalfExtents(rx, ry, scaleX, scaleY, rotation)
+  const minX = halfW
+  const minY = halfH
+  const maxX = Math.max(minX, bounds.width - halfW)
+  const maxY = Math.max(minY, bounds.height - halfH)
+  return {
+    x: Math.min(maxX, Math.max(minX, x)),
+    y: Math.min(maxY, Math.max(minY, y)),
+  }
+}
+
+function clampGuideTransform(model, x, y, scaleX, scaleY, rotation) {
+  if (!model?.meta?.guideLine || !guideWallPx.value) {
+    return { x, y, scaleX, scaleY, rotation }
+  }
+  const rx = Number(model?.meta?.radiusX ?? 46)
+  const ry = Number(model?.meta?.radiusY ?? 60)
+  const minScale = 0.2
+  let nextScaleX = Math.max(minScale, Number(scaleX || 1))
+  let nextScaleY = Math.max(minScale, Number(scaleY || 1))
+
+  const { cos, sin } = guideHalfExtents(rx, ry, 1, 1, rotation)
+  const maxW = guideWallPx.value.width / 2
+  const maxH = guideWallPx.value.height / 2
+
+  if (rx > 0) {
+    const limitW = cos ? (maxW - Math.abs(ry * nextScaleY) * sin) / (Math.abs(rx) * cos) : Infinity
+    const limitH = sin ? (maxH - Math.abs(ry * nextScaleY) * cos) / (Math.abs(rx) * sin) : Infinity
+    const limit = Math.min(limitW, limitH)
+    if (Number.isFinite(limit)) nextScaleX = Math.max(minScale, Math.min(nextScaleX, limit))
+  }
+
+  if (ry > 0) {
+    const limitW = sin ? (maxW - Math.abs(rx * nextScaleX) * cos) / (Math.abs(ry) * sin) : Infinity
+    const limitH = cos ? (maxH - Math.abs(rx * nextScaleX) * sin) / (Math.abs(ry) * cos) : Infinity
+    const limit = Math.min(limitW, limitH)
+    if (Number.isFinite(limit)) nextScaleY = Math.max(minScale, Math.min(nextScaleY, limit))
+  }
+
+  if (guideMaxRadiusPx.value) {
+    if (rx > 0) nextScaleX = Math.min(nextScaleX, guideMaxRadiusPx.value / rx)
+    if (ry > 0) nextScaleY = Math.min(nextScaleY, guideMaxRadiusPx.value / ry)
+  }
+
+  const { halfW, halfH } = guideHalfExtents(rx, ry, nextScaleX, nextScaleY, rotation)
+  const minX = halfW
+  const minY = halfH
+  const maxX = Math.max(minX, guideWallPx.value.width - halfW)
+  const maxY = Math.max(minY, guideWallPx.value.height - halfH)
+  const nextX = Math.min(maxX, Math.max(minX, x))
+  const nextY = Math.min(maxY, Math.max(minY, y))
+
+  return { x: nextX, y: nextY, scaleX: nextScaleX, scaleY: nextScaleY, rotation }
 }
 
 function symbolInstanceConfig(n) {
@@ -562,8 +993,13 @@ function symbolInstanceConfig(n) {
     scaleY: n.scaleY,
     opacity: baseOpacity(n.opacity) * dimFactorForNode(n),
     draggable:
-      !symbolEditActive.value && !n.locked && !panning.value && !panMode.value && !spaceDown.value,
-    listening: !n?.meta?.guide,
+      !symbolEditActive.value &&
+      !n.locked &&
+      !n?.meta?.guideFixed &&
+      !panning.value &&
+      !panMode.value &&
+      !spaceDown.value,
+    listening: !n?.meta?.guide || !!n?.meta?.guideLine,
   }
 }
 
@@ -611,6 +1047,19 @@ function isSymbolNode(n) {
   return n?.kind === 'symbol'
 }
 
+function pinActiveSymbolInstance(stage) {
+  if (!symbolEditActive.value) return
+  const instanceId = activeSymbolInstanceId.value
+  if (!instanceId) return
+  const model = store.nodes.find((n) => String(n.id) === String(instanceId))
+  if (!model) return
+  const group = stage?.findOne ? stage.findOne('#' + String(instanceId)) : null
+  if (!group) return
+  if (group.x() !== model.x || group.y() !== model.y) {
+    group.position({ x: model.x, y: model.y })
+  }
+}
+
 function isActiveSymbolInstance(n) {
   return symbolEditActive.value && String(n?.id) === String(activeSymbolInstanceId.value)
 }
@@ -618,17 +1067,68 @@ function isActiveSymbolInstance(n) {
 function ellipseConfig(n, { listening = true } = {}) {
   const rx = Number(n?.meta?.radiusX ?? 46)
   const ry = Number(n?.meta?.radiusY ?? 60)
+  const guideLine = !!n?.meta?.guideLine
+  const guideAlpha = clampNumber(Number(n?.meta?.guideAlpha ?? 100), 0, 100)
+  const guideFillAlpha = clampNumber(Number(n?.meta?.guideFillAlpha ?? 0), 0, 100)
+  const guideFillColor = String(n?.meta?.guideFillColor || '#ffffff')
+  const baseStroke = String(n?.color || '#3c3c3c')
+  const strokeColor = guideLine ? withAlpha(baseStroke, guideAlpha / 100) : 'rgba(0,0,0,.10)'
+  const strokeWidth = guideLine ? Math.max(1, Number(n?.meta?.guideLineWidth || 2)) : 1
+  const dash = guideLine && n?.meta?.guideLineDash ? [6, 4] : null
+  const hitStrokeWidth = guideLine ? Math.max(8, strokeWidth + 6) : 0
+  const depthShadow = topViewShadow(n)
+  const shadowEnabled = !!depthShadow && !guideLine
+  const fillAlpha = guideLine ? guideFillAlpha / 100 : 1
+  const fillColor = guideLine ? withAlpha(guideFillColor, fillAlpha) : n.color
 
   return {
     x: 0,
     y: 0,
     radiusX: rx,
     radiusY: ry,
-    fill: n.color,
-    stroke: 'rgba(0,0,0,.10)',
-    strokeWidth: 1,
-    hitStrokeWidth: 0,
+    fill: fillColor,
+    stroke: strokeColor,
+    strokeWidth,
+    dash,
+    shadowColor: shadowEnabled ? 'rgba(0,0,0,1)' : undefined,
+    shadowOpacity: shadowEnabled ? depthShadow.opacity : 0,
+    shadowBlur: shadowEnabled ? depthShadow.blur : 0,
+    shadowOffsetX: shadowEnabled ? depthShadow.offsetX : 0,
+    shadowOffsetY: shadowEnabled ? depthShadow.offsetY : 0,
+    shadowEnabled,
+    fillEnabled: true,
+    hitFillEnabled: guideLine,
+    hitStrokeWidth,
     listening,
+    perfectDrawEnabled: false,
+  }
+}
+
+function guideNumberConfig(n) {
+  if (!n?.meta?.guideLine || !isGuideStore.value) return null
+  const number = guideNumberById.value.get(String(n.id))
+  if (!number) return null
+  const rx = Math.max(1, Number(n?.meta?.radiusX ?? 46))
+  const ry = Math.max(1, Number(n?.meta?.radiusY ?? 60))
+  const minR = Math.max(6, Math.min(rx, ry))
+  const fontSize = clamp(Math.round(minR * 0.6), 10, 22)
+  const fillAlpha = clampNumber(Number(n?.meta?.guideFillAlpha ?? 0), 0, 100)
+  const baseColor =
+    fillAlpha <= 10 ? String(n?.color || '#111111') : String(n?.meta?.guideFillColor || '#ffffff')
+  const textColor = isDarkColor(baseColor) ? '#ffffff' : '#111111'
+
+  return {
+    x: -rx,
+    y: -ry,
+    width: rx * 2,
+    height: ry * 2,
+    text: String(number),
+    fontSize,
+    fontFamily: 'Space Grotesk, sans-serif',
+    align: 'center',
+    verticalAlign: 'middle',
+    fill: textColor,
+    listening: false,
     perfectDrawEnabled: false,
   }
 }
@@ -680,6 +1180,56 @@ function symbolNodesForInstance(n) {
   return symbol.nodes
 }
 
+function symbolLocalBounds(symbolId) {
+  const nodes = symbolNodesForSymbolId(symbolId)
+  if (!nodes.length) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes) {
+    if (!n || n.kind === 'symbol') continue
+    if (n.kind === 'text') {
+      const width = Number(n?.meta?.width ?? 220)
+      const fontSize = Number(n?.meta?.fontSize ?? 24)
+      const height = fontSize * 1.2
+      const cx = Number(n?.x ?? 0)
+      const cy = Number(n?.y ?? 0)
+      minX = Math.min(minX, cx)
+      minY = Math.min(minY, cy)
+      maxX = Math.max(maxX, cx + width)
+      maxY = Math.max(maxY, cy + height)
+      continue
+    }
+    if (n.kind === 'image') {
+      const width = Number(n?.meta?.width ?? 160)
+      const height = Number(n?.meta?.height ?? 120)
+      const cx = Number(n?.x ?? 0)
+      const cy = Number(n?.y ?? 0)
+      minX = Math.min(minX, cx - width / 2)
+      minY = Math.min(minY, cy - height / 2)
+      maxX = Math.max(maxX, cx + width / 2)
+      maxY = Math.max(maxY, cy + height / 2)
+      continue
+    }
+    const rx = Number(n?.meta?.radiusX ?? 46) * Math.abs(Number(n?.scaleX ?? 1))
+    const ry = Number(n?.meta?.radiusY ?? 60) * Math.abs(Number(n?.scaleY ?? 1))
+    const cx = Number(n?.x ?? 0)
+    const cy = Number(n?.y ?? 0)
+    minX = Math.min(minX, cx - rx)
+    minY = Math.min(minY, cy - ry)
+    maxX = Math.max(maxX, cx + rx)
+    maxY = Math.max(maxY, cy + ry)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return {
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+  }
+}
+
 function symbolNodesForSymbolId(symbolId) {
   const symbol = symbolsById.value.get(String(symbolId))
   if (!symbol || !Array.isArray(symbol.nodes)) return []
@@ -700,6 +1250,7 @@ function nestedSymbolChildConfig(child) {
 }
 
 function nestedSymbolInstanceConfig(child) {
+  const depthOpacity = topViewOpacityFactor(child)
   return {
     id: `nested-instance-${child.id}`,
     x: child.x,
@@ -707,12 +1258,13 @@ function nestedSymbolInstanceConfig(child) {
     rotation: child.rotation,
     scaleX: child.scaleX,
     scaleY: child.scaleY,
-    opacity: child.opacity,
+    opacity: baseOpacity(child.opacity) * depthOpacity,
     listening: true,
   }
 }
 
-function shineConfig() {
+function shineConfig(n) {
+  const guideLine = !!n?.meta?.guideLine
   return {
     x: -14,
     y: -18,
@@ -720,6 +1272,7 @@ function shineConfig() {
     radiusY: 18,
     fill: 'rgba(255,255,255,0.35)',
     listening: false,
+    visible: !guideLine,
     perfectDrawEnabled: false,
   }
 }
@@ -728,6 +1281,7 @@ function innerShadeConfig(n) {
   const rx = Number(n?.meta?.radiusX ?? 46)
   const ry = Number(n?.meta?.radiusY ?? 60)
   const maxR = Math.max(rx, ry)
+  const guideLine = !!n?.meta?.guideLine
 
   return {
     x: 0,
@@ -740,6 +1294,7 @@ function innerShadeConfig(n) {
     fillRadialGradientEndRadius: maxR,
     fillRadialGradientColorStops: [0, 'rgba(0,0,0,0)', 0.6, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.22)'],
     listening: false,
+    visible: !guideLine,
     perfectDrawEnabled: false,
   }
 }
@@ -747,6 +1302,7 @@ function innerShadeConfig(n) {
 function knotConfig(n) {
   const ry = Number(n?.meta?.radiusY ?? 60)
   const show = n?.meta?.knot !== false
+  const guideLine = !!n?.meta?.guideLine
 
   return {
     x: 0,
@@ -754,7 +1310,7 @@ function knotConfig(n) {
     radius: 6,
     fill: 'rgba(0,0,0,0.18)',
     listening: false,
-    visible: show,
+    visible: show && !guideLine,
     perfectDrawEnabled: false,
   }
 }
@@ -773,12 +1329,14 @@ const gridLines = computed(() => {
   if (rs < 0.35) step = gridSize * 4
   else if (rs < 0.6) step = gridSize * 2
 
-  const dx = store.view.x * displayScale.value
-  const dy = store.view.y * displayScale.value
-  const left = Math.max(0, -dx / rs)
-  const top = Math.max(0, -dy / rs)
-  const right = Math.min(maxWidth, (size.value.w - dx) / rs)
-  const bottom = Math.min(maxHeight, (size.value.h - dy) / rs)
+  const leftEdge = toCanvasX(0)
+  const rightEdge = toCanvasX(size.value.w)
+  const topEdge = toCanvasY(0)
+  const bottomEdge = toCanvasY(size.value.h)
+  const left = Math.max(0, Math.min(leftEdge, rightEdge))
+  const right = Math.min(maxWidth, Math.max(leftEdge, rightEdge))
+  const top = Math.max(0, Math.min(topEdge, bottomEdge))
+  const bottom = Math.min(maxHeight, Math.max(topEdge, bottomEdge))
 
   const startX = Math.max(0, Math.floor(left / step) * step)
   const endX = Math.min(maxWidth, Math.ceil(right / step) * step)
@@ -842,6 +1400,41 @@ function dimFactorForNode(n) {
   }
 
   return 1
+}
+
+function topViewVector(n) {
+  if (!isGuideStore.value) return null
+  const tv = n?.meta?.topView
+  if (!tv || typeof tv !== 'object') return null
+  const x = Number(tv.x)
+  const y = Number(tv.y)
+  if (!Number.isFinite(x) && !Number.isFinite(y)) return null
+  const flip = isBackView.value ? -1 : 1
+  return {
+    x: Number.isFinite(x) ? clampNumber(x * flip, -3, 3) : 0,
+    y: Number.isFinite(y) ? clampNumber(y * flip, -3, 3) : 0,
+  }
+}
+
+function topViewOpacityFactor(n) {
+  const v = topViewVector(n)
+  if (!v) return 1
+  if (v.y >= 0) return 1
+  const strength = Math.min(1, Math.abs(v.y) / 3)
+  return 1 - strength * 0.18
+}
+
+function topViewShadow(n) {
+  const v = topViewVector(n)
+  if (!v) return null
+  const strength = Math.min(1, (Math.abs(v.x) + Math.abs(v.y)) / 3)
+  if (!strength) return null
+  return {
+    offsetX: v.x * 6,
+    offsetY: v.y * 6,
+    blur: 6 + strength * 10,
+    opacity: 0.18 + strength * 0.2,
+  }
 }
 
 function symbolBounds(symbol, depth = 0) {
@@ -925,6 +1518,80 @@ function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v))
 }
 
+function clampNumber(v, min, max) {
+  const n = Number(v)
+  if (!Number.isFinite(n)) return min
+  return Math.min(max, Math.max(min, n))
+}
+
+function withAlpha(color, alpha = 1) {
+  const a = clampNumber(alpha, 0, 1)
+  if (!color) return `rgba(60,60,60,${a})`
+  const raw = String(color).trim()
+  if (raw.startsWith('#')) {
+    let hex = raw.slice(1)
+    if (hex.length === 3) {
+      hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    }
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+        return `rgba(${r}, ${g}, ${b}, ${a})`
+      }
+    }
+  }
+
+  const match = raw.match(/rgba?\(([^)]+)\)/i)
+  if (match) {
+    const parts = match[1].split(',').map((v) => Number(v.trim()))
+    if (parts.length >= 3) {
+      const [r, g, b] = parts
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+        return `rgba(${r}, ${g}, ${b}, ${a})`
+      }
+    }
+  }
+
+  return raw
+}
+
+function parseRgb(color) {
+  const raw = String(color || '').trim()
+  if (!raw) return null
+  if (raw.startsWith('#')) {
+    let hex = raw.slice(1)
+    if (hex.length === 3) {
+      hex = `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    }
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16)
+      const g = parseInt(hex.slice(2, 4), 16)
+      const b = parseInt(hex.slice(4, 6), 16)
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return { r, g, b }
+    }
+  }
+
+  const match = raw.match(/rgba?\(([^)]+)\)/i)
+  if (match) {
+    const parts = match[1].split(',').map((v) => Number(v.trim()))
+    if (parts.length >= 3) {
+      const [r, g, b] = parts
+      if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) return { r, g, b }
+    }
+  }
+
+  return null
+}
+
+function isDarkColor(color) {
+  const rgb = parseRgb(color)
+  if (!rgb) return false
+  const lum = rgb.r * 0.2126 + rgb.g * 0.7152 + rgb.b * 0.0722
+  return lum < 140
+}
+
 function getInflationScaleRange(node) {
   const type = catalog.typeById?.(node.typeId)
   if (!type) return null
@@ -997,19 +1664,63 @@ const renderNodes = computed(() => {
     if (rectIntersects(rect, box)) filtered.push(n)
   }
 
-  if (filtered.length <= maxRenderNodes.value) return filtered
+  if (filtered.length <= maxRenderNodes.value) return reorderCircleDepth(filtered)
 
   const selectedList = filtered.filter((n) => selected.has(n.id))
   const rest = filtered.filter((n) => !selected.has(n.id))
   const limit = Math.max(0, maxRenderNodes.value - selectedList.length)
-  return [...selectedList, ...rest.slice(0, limit)]
+  return reorderCircleDepth([...selectedList, ...rest.slice(0, limit)])
 })
+
+function reorderCircleDepth(list) {
+  if (!Array.isArray(list) || list.length < 2) return list
+  const groups = store.groups || []
+  if (!groups.length) return list
+  const groupById = new Map(groups.map((g) => [String(g.id), g]))
+  const entriesByGroup = new Map()
+
+  list.forEach((node, index) => {
+    const gid = node?.groupId
+    if (!gid) return
+    const group = groupById.get(String(gid))
+    if (!group) return
+    let isCircle = group?.meta?.layout === 'circle'
+    if (!isCircle) {
+      const tvy = Number(node?.meta?.topView?.y)
+      if (Number.isFinite(tvy) && Math.abs(tvy) > 0.01) isCircle = true
+    }
+    if (!isCircle) return
+    const y = Number(node?.meta?.topView?.y)
+    if (!Number.isFinite(y)) return
+    const entry = entriesByGroup.get(String(gid)) || { indices: [], nodes: [] }
+    entry.indices.push(index)
+    entry.nodes.push(node)
+    entriesByGroup.set(String(gid), entry)
+  })
+
+  if (!entriesByGroup.size) return list
+
+  const next = [...list]
+  for (const entry of entriesByGroup.values()) {
+    if (entry.nodes.length < 2) continue
+    const sortedNodes = [...entry.nodes].sort((a, b) => {
+      const ay = Number(topViewVector(a)?.y ?? 0)
+      const by = Number(topViewVector(b)?.y ?? 0)
+      return ay - by
+    })
+    const sortedIndices = [...entry.indices].sort((a, b) => a - b)
+    sortedIndices.forEach((idx, i) => {
+      next[idx] = sortedNodes[i]
+    })
+  }
+  return next
+}
 
 /* ================== GUIDES ================== */
 const guides = ref({ x: null, y: null })
 
 const guidesLines = computed(() => {
-  if (renderQuality.value === 'low') return []
+  if (effectiveQuality.value === 'low') return []
   if (!store.settings?.snapGuides) return []
   const lines = []
   if (guides.value.x && Number.isFinite(guides.value.x.value)) {
@@ -1046,7 +1757,7 @@ function clearGuides() {
 }
 
 function buildSnapCandidates(excludeIds = []) {
-  if (renderQuality.value === 'low') return { xs: [], ys: [] }
+  if (effectiveQuality.value === 'low') return { xs: [], ys: [] }
   if (!store.settings?.snapGuides) return { xs: [], ys: [] }
   const exclude = new Set(excludeIds)
   const xs = []
@@ -1175,12 +1886,7 @@ function snapBoxToGuides(box, candidates) {
 function getCanvasPointer(stage) {
   const p = stage.getPointerPosition()
   if (!p) return null
-  const rs = renderScale.value
-  const dx = store.view.x * displayScale.value
-  const dy = store.view.y * displayScale.value
-  const x = (p.x - dx) / rs
-  const y = (p.y - dy) / rs
-  return { x, y }
+  return { x: toCanvasX(p.x), y: toCanvasY(p.y) }
 }
 
 function onStagePointerMove() {
@@ -1212,10 +1918,18 @@ function onNodePointerDown(node, e) {
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const mod = isMac ? !!evt?.metaKey : !!evt?.ctrlKey
   const append = !!evt?.shiftKey
+  const selectedIds = Array.isArray(store.selectedIds) ? store.selectedIds : []
 
   if (mod || append) {
     store.toggleSelect(node.id)
     closeMenu()
+    emit('guide-paint', node)
+    return
+  }
+
+  if (!groupEditMode.value && selectedIds.length > 1 && selectedIds.includes(node.id)) {
+    closeMenu()
+    emit('guide-paint', node)
     return
   }
 
@@ -1227,6 +1941,7 @@ function onNodePointerDown(node, e) {
 
   store.select(node.id, { append: false })
   closeMenu()
+  emit('guide-paint', node)
 }
 
 function onSymbolNodePointerDown(instance, node, e) {
@@ -1246,9 +1961,17 @@ function onSymbolNodePointerDown(instance, node, e) {
   const isMac = navigator.platform.toLowerCase().includes('mac')
   const mod = isMac ? !!evt?.metaKey : !!evt?.ctrlKey
   const append = !!evt?.shiftKey
+  const selectedIds = Array.isArray(store.ui?.symbolEdit?.selectedIds)
+    ? store.ui.symbolEdit.selectedIds
+    : []
 
   if (mod || append) {
     store.toggleSelectSymbolNode(node.id)
+    closeMenu()
+    return
+  }
+
+  if (selectedIds.length > 1 && selectedIds.includes(node.id)) {
     closeMenu()
     return
   }
@@ -1278,12 +2001,13 @@ watch(
     }
 
     const konvaNodes = []
+    let hasGuideFixed = false
     if (symbolEditActive.value) {
       const symbol = symbolsById.value.get(String(symbolEdit.value.symbolId))
       const nodeById = new Map((symbol?.nodes || []).map((n) => [String(n.id), n]))
       for (const id of list) {
         const model = nodeById.get(String(id))
-        if (!model || model.locked || model?.meta?.guide) continue
+        if (!model || model.locked || model?.meta?.guide || model?.meta?.guideFixed) continue
         const n = stage.findOne('#' + symbolChildId(activeSymbolInstanceId.value, id))
         if (n) konvaNodes.push(n)
       }
@@ -1291,12 +2015,16 @@ watch(
       for (const id of list) {
         const n = stage.findOne('#' + String(id))
         const model = store.nodes.find((x) => x.id === id)
-        if (n && model && !model.locked && !model?.meta?.guide) konvaNodes.push(n)
+        if (!n || !model || model.locked || model?.meta?.guide) continue
+        if (model?.meta?.guideFixed) hasGuideFixed = true
+        konvaNodes.push(n)
       }
     }
 
     // si alguno está locked, lo ignoramos (intocable) y dejamos anchors normales
-    tr.enabledAnchors(transformerConfig.enabledAnchors)
+    const config = transformerConfig.value
+    tr.enabledAnchors(hasGuideFixed ? [] : config.enabledAnchors)
+    tr.rotateEnabled(hasGuideFixed ? false : !!config.rotateEnabled)
 
     tr.nodes(konvaNodes)
     tr.getLayer()?.batchDraw()
@@ -1347,19 +2075,33 @@ function onDragStart(node, e) {
   const groupIds = selected.map((n) => n.id)
 
   const isGroupDrag = !!store.selectedGroupId && !groupEditMode.value
+  const modelById = new Map(store.nodes.map((n) => [String(n.id), n]))
+  const anchorModel = modelById.get(String(node.id)) || node
+
   dragSession = {
     anchorId: node.id,
-    startAnchor: { x: t.x(), y: t.y() },
+    startAnchor: {
+      x: Number(anchorModel?.x ?? t.x()),
+      y: Number(anchorModel?.y ?? t.y()),
+    },
     ids: groupIds,
     startPos: new Map(),
+    nodesById: new Map(),
     candidates: isGroupDrag ? { xs: [], ys: [] } : buildSnapCandidates(groupIds),
-    anchorModel: store.nodes.find((n) => n.id === node.id) || node,
+    anchorModel,
     disableSnap: isGroupDrag,
   }
 
   for (const id of groupIds) {
     const g = stage.findOne('#' + String(id))
-    if (g) dragSession.startPos.set(id, { x: g.x(), y: g.y() })
+    const model = modelById.get(String(id))
+    if (g) {
+      dragSession.nodesById.set(String(id), g)
+      dragSession.startPos.set(id, {
+        x: Number(model?.x ?? g.x()),
+        y: Number(model?.y ?? g.y()),
+      })
+    }
   }
 
   clearGuides()
@@ -1367,6 +2109,7 @@ function onDragStart(node, e) {
 }
 
 function onDragMove(node, e) {
+  if (symbolEditActive.value) return
   if (!dragSession) return
   pendingDrag = { node, e }
   if (!dragRaf) {
@@ -1403,6 +2146,12 @@ function handleDragMove(node, e) {
     ay += snapped.dy
   }
 
+  if (anchorModel?.meta?.guideLine) {
+    const clamped = clampGuidePosition(anchorModel, ax, ay)
+    ax = clamped.x
+    ay = clamped.y
+  }
+
   t.position({ x: ax, y: ay })
 
   if (!dragSession.disableSnap) {
@@ -1419,7 +2168,7 @@ function handleDragMove(node, e) {
     if (id === dragSession.anchorId) continue
     const start = dragSession.startPos.get(id)
     if (!start) continue
-    const g = stage.findOne('#' + String(id))
+    const g = dragSession.nodesById.get(String(id))
     if (!g) continue
     g.position({ x: start.x + dx, y: start.y + dy })
   }
@@ -1428,6 +2177,7 @@ function handleDragMove(node, e) {
 }
 
 function onDragEnd(node, e) {
+  if (symbolEditActive.value) return
   if (dragRaf) cancelAnimationFrame(dragRaf)
   dragRaf = null
   pendingDrag = null
@@ -1435,20 +2185,29 @@ function onDragEnd(node, e) {
   const t = e.target
 
   if (!dragSession || !stage || !t) {
-    if (t) store.updateNode(node.id, { x: snapValue(t.x()), y: snapValue(t.y()) })
+    if (t) {
+      const next = clampGuidePosition(node, snapValue(t.x()), snapValue(t.y()))
+      store.updateNode(node.id, { x: next.x, y: next.y })
+    }
     clearGuides()
     return
   }
 
   try {
-    const anchor = stage.findOne('#' + String(dragSession.anchorId))
-    if (anchor) store.updateNode(dragSession.anchorId, { x: anchor.x(), y: anchor.y() })
+    const anchor = dragSession.nodesById.get(String(dragSession.anchorId))
+    if (anchor) {
+      const next = clampGuidePosition(node, anchor.x(), anchor.y())
+      store.updateNode(dragSession.anchorId, { x: next.x, y: next.y })
+    }
 
+    const nodeById = new Map(store.nodes.map((n) => [String(n.id), n]))
     for (const id of dragSession.ids) {
       if (id === dragSession.anchorId) continue
-      const g = stage.findOne('#' + String(id))
+      const g = dragSession.nodesById.get(String(id))
       if (!g) continue
-      store.updateNode(id, { x: g.x(), y: g.y() })
+      const item = nodeById.get(String(id))
+      const next = clampGuidePosition(item, g.x(), g.y())
+      store.updateNode(id, { x: next.x, y: next.y })
     }
   } finally {
     dragSession = null
@@ -1524,6 +2283,8 @@ function handleSymbolDragMove(instance, e) {
     g.position({ x: start.x + dx, y: start.y + dy })
   }
 
+  pinActiveSymbolInstance(stage)
+
   stage.batchDraw()
 }
 
@@ -1550,6 +2311,7 @@ function onSymbolDragEnd(instance, e) {
     if (Object.keys(patchById).length) {
       store.updateSymbolNodes(symbolEdit.value.symbolId, patchById)
     }
+    pinActiveSymbolInstance(stage)
   } finally {
     symbolDragSession = null
     store.endHistoryBatch()
@@ -1575,12 +2337,20 @@ function onTransformEnd() {
   for (const id of unlockedIds) {
     const g = stage.findOne('#' + String(id))
     if (!g) continue
+    const model = store.nodes.find((x) => x.id === id)
+    if (model?.meta?.guideFixed) continue
+    const nextX = snapValue(g.x())
+    const nextY = snapValue(g.y())
+    const nextScaleX = g.scaleX()
+    const nextScaleY = g.scaleY()
+    const nextRotation = g.rotation()
+    const clamped = clampGuideTransform(model, nextX, nextY, nextScaleX, nextScaleY, nextRotation)
     patchById[id] = {
-      x: snapValue(g.x()),
-      y: snapValue(g.y()),
-      scaleX: g.scaleX(),
-      scaleY: g.scaleY(),
-      rotation: g.rotation(),
+      x: clamped.x,
+      y: clamped.y,
+      scaleX: clamped.scaleX,
+      scaleY: clamped.scaleY,
+      rotation: clamped.rotation,
     }
   }
 
@@ -1617,6 +2387,7 @@ function onSymbolTransformEnd(instance) {
   }
 
   if (Object.keys(patchById).length) store.updateSymbolNodes(symbol.id, patchById)
+  pinActiveSymbolInstance(stage)
 }
 
 /* ================== CLICK EMPTY ================== */
@@ -1625,14 +2396,9 @@ function onStageClick(e) {
   if (!stage) return
 
   if (store.ui?.stackGrid?.pickOrigin) {
-    const pointer = stage.getPointerPosition()
-    const scale = renderScale.value
-    if (pointer && scale) {
-      const dx = store.view.x * displayScale.value
-      const dy = store.view.y * displayScale.value
-      const x = (pointer.x - dx) / scale
-      const y = (pointer.y - dy) / scale
-      store.setStackGridOrigin?.({ x, y })
+    const pointer = getCanvasPointer(stage)
+    if (pointer) {
+      store.setStackGridOrigin?.({ x: pointer.x, y: pointer.y })
       store.setStackGridPickOrigin?.(false)
     }
     if (e?.cancelBubble !== undefined) e.cancelBubble = true
@@ -1702,13 +2468,13 @@ function onWheel(e) {
   const newScale = dir > 0 ? oldScale * scaleBy : oldScale / scaleBy
 
   const mousePointTo = {
-    x: (pointer.x - store.view.x * displayScale.value) / renderScale.value,
-    y: (pointer.y - store.view.y * displayScale.value) / renderScale.value,
+    x: toCanvasX(pointer.x),
+    y: toCanvasY(pointer.y),
   }
 
   store.setView({
     scale: newScale,
-    x: pointer.x / displayScale.value - mousePointTo.x * newScale,
+    x: viewXForCanvasPoint(pointer.x, mousePointTo.x, newScale),
     y: pointer.y / displayScale.value - mousePointTo.y * newScale,
   })
 }
@@ -1761,7 +2527,7 @@ function beginPan(clientX, clientY) {
   panLast.value = { x: clientX, y: clientY, t: performance.now() }
   panVel.value = { vx: 0, vy: 0 }
   setCursor('grabbing')
-  if (renderQuality.value === 'low' || store.ui?.rasterOnPan) setRasterMode(true)
+  if (effectiveQuality.value === 'low' || rasterOnPanEnabled.value) setRasterMode(true)
 }
 
 function movePan(clientX, clientY) {
@@ -1785,7 +2551,7 @@ function endPan() {
   if (!panning.value) return
   panning.value = false
   setCursor(spaceDown.value || panMode.value ? 'grab' : 'default')
-  if (renderQuality.value === 'low' || store.ui?.rasterOnPan) setRasterMode(false)
+  if (effectiveQuality.value === 'low' || rasterOnPanEnabled.value) setRasterMode(false)
 
   // si hay velocidad, aplica inercia
   const speed = Math.hypot(panVel.value.vx, panVel.value.vy)
@@ -2037,10 +2803,19 @@ function onMenuAction(action) {
   if (action === 'bring-front') store.bringToFrontSelected?.()
   if (action === 'send-back') store.sendToBackSelected?.()
 
-  if (action === 'create-symbol') store.createSymbolFromSelection?.()
-  if (action === 'edit-symbol' && store.selectedId) store.enterSymbolEdit?.(store.selectedId)
+  if (action === 'create-symbol') {
+    const instanceId = store.createSymbolFromSelection?.()
+    if (instanceId) store.enterSymbolEdit?.(instanceId)
+  }
+  if (action === 'edit-symbol') {
+    const targetId = selectedSymbolInstanceId.value || store.selectedId
+    if (targetId) store.enterSymbolEdit?.(targetId)
+  }
   if (action === 'exit-symbol') store.exitSymbolEdit?.({ selectInstance: true })
-  if (action === 'detach-symbol' && store.selectedId) store.detachSymbolInstance?.(store.selectedId)
+  if (action === 'detach-symbol') {
+    const targetId = selectedSymbolInstanceId.value || store.selectedId
+    if (targetId) store.detachSymbolInstance?.(targetId)
+  }
 
   if (action === 'delete') store.deleteSelected()
 }
@@ -2064,7 +2839,10 @@ function onStageContextMenu(e) {
       const id = group?.id?.() || target?.id?.()
       const parsed = parseSymbolChildId(id)
       if (parsed && String(parsed.instanceId) === String(activeSymbolInstanceId.value)) {
-        store.selectSymbolNode(parsed.childId, { append: false })
+        const selected = new Set(store.ui?.symbolEdit?.selectedIds || [])
+        if (!selected.has(String(parsed.childId))) {
+          store.selectSymbolNode(parsed.childId, { append: false })
+        }
       }
     } else {
       store.clearSymbolSelection()
@@ -2092,9 +2870,13 @@ function onStageContextMenu(e) {
         (!groupEditMode.value ||
           (model.groupId && String(model.groupId) === String(store.selectedGroupId)))
       ) {
+        const selected = new Set((store.selectedIds || []).map((sid) => String(sid)))
+        const isSelected = selected.has(String(model.id))
         if (model.groupId && !groupEditMode.value) {
-          store.selectGroup(model.groupId)
-        } else {
+          if (!isSelected || String(model.groupId) !== String(store.selectedGroupId)) {
+            store.selectGroup(model.groupId)
+          }
+        } else if (!isSelected) {
           store.select(String(id))
         }
       }
@@ -2109,27 +2891,111 @@ function onStageContextMenu(e) {
 }
 
 function onToolbarDuplicate() {
+  if (symbolEditActive.value) {
+    store.duplicateSymbolSelection?.({ offset: 18 })
+    return
+  }
   if (!store.selectedId) return
   store.duplicateSelected({ offset: 18 })
 }
 
 function onToolbarDelete() {
+  if (symbolEditActive.value) {
+    store.deleteSymbolSelection?.()
+    return
+  }
   if (!store.selectedId) return
   store.deleteSelected()
 }
 
 function onToolbarRotate(delta) {
+  if (symbolEditActive.value) {
+    store.rotateSymbolSelection?.(delta)
+    return
+  }
+  if (store.selectedGroupId && isGuideStore.value && !groupEditMode.value) {
+    rotateGroupSelection(delta)
+    return
+  }
   const node = store.selectedNode
   if (!node) return
   const next = clamp(Number(node.rotation || 0) + delta, -180, 180)
   store.updateNode(node.id, { rotation: next })
 }
 
+function rotateGroupSelection(delta) {
+  const list = Array.isArray(store.selectedNodes)
+    ? store.selectedNodes.filter((n) => n && !n.locked)
+    : []
+  if (list.length < 2) return
+  const radians = ((Number(delta) || 0) * Math.PI) / 180
+  if (!Number.isFinite(radians) || radians === 0) return
+
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of list) {
+    const box = nodeBoundingBox(n)
+    minX = Math.min(minX, box.x)
+    minY = Math.min(minY, box.y)
+    maxX = Math.max(maxX, box.x + box.width)
+    maxY = Math.max(maxY, box.y + box.height)
+  }
+
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return
+
+  const centerX = (minX + maxX) / 2
+  const centerY = (minY + maxY) / 2
+  const cos = Math.cos(radians)
+  const sin = Math.sin(radians)
+  const patchById = {}
+
+  for (const node of list) {
+    const dx = Number(node.x || 0) - centerX
+    const dy = Number(node.y || 0) - centerY
+    const nx = centerX + dx * cos - dy * sin
+    const ny = centerY + dx * sin + dy * cos
+    const nextRotation = clamp(Number(node.rotation || 0) + Number(delta || 0), -180, 180)
+    const clamped = clampGuideTransform(
+      node,
+      nx,
+      ny,
+      Number(node.scaleX ?? 1),
+      Number(node.scaleY ?? 1),
+      nextRotation,
+    )
+    patchById[node.id] = {
+      x: clamped.x,
+      y: clamped.y,
+      rotation: clamped.rotation,
+      scaleX: clamped.scaleX,
+      scaleY: clamped.scaleY,
+    }
+  }
+
+  if (!Object.keys(patchById).length) return
+  store.beginHistoryBatch()
+  try {
+    store.updateNodes(patchById)
+  } finally {
+    store.endHistoryBatch()
+  }
+}
+
 function onToolbarBringForward() {
+  if (symbolEditActive.value) {
+    store.bringForwardSymbolSelection?.()
+    return
+  }
   store.bringForwardSelected?.()
 }
 
 function onToolbarSendBackward() {
+  if (symbolEditActive.value) {
+    store.sendBackwardSymbolSelection?.()
+    return
+  }
   store.sendBackwardSelected?.()
 }
 

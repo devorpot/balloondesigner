@@ -377,9 +377,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Sortable from 'sortablejs'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 
-const store = useEditorStore()
+const store = useActiveEditorStore()
 const listEl = ref(null)
 const collapsed = ref(false)
 let sortable = null

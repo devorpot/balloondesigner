@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import catalogSeed from '@/data/catalog.json'
 
 const STORAGE_KEY = 'balloon_catalog_v1'
-const STORAGE_VERSION = 2
+const STORAGE_VERSION = 3
 
 const MEASUREMENT_MAP = {
   sizeIn: (type) => {
@@ -127,13 +127,16 @@ export const useCatalogStore = defineStore('catalog', {
 
       const parsed = tryReadStorage()
       if (parsed && typeof parsed === 'object' && Array.isArray(parsed.categories)) {
-        this.version = Number(parsed.version || STORAGE_VERSION) || STORAGE_VERSION
-        const sanitized = sanitizeCategories(parsed.categories)
-        if (sanitized.length) {
-          this.categories = sanitized
-          this.initialized = true
-          this.persist()
-          return
+        const parsedVersion = Number(parsed.version || 0)
+        if (parsedVersion === STORAGE_VERSION) {
+          this.version = parsedVersion
+          const sanitized = sanitizeCategories(parsed.categories)
+          if (sanitized.length) {
+            this.categories = sanitized
+            this.initialized = true
+            this.persist()
+            return
+          }
         }
       }
 

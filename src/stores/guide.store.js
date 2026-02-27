@@ -1,4 +1,4 @@
-// editor.store.js
+// guide.store.js
 import { defineStore } from 'pinia'
 import { toRaw } from 'vue'
 import {
@@ -74,9 +74,9 @@ function serializeGuideNode(node) {
   }
 }
 
-const STORAGE_KEY = 'ballon_designer_autosave_v1'
+const STORAGE_KEY = 'ballon_designer_autosave_guide_v1'
 
-export const useEditorStore = defineStore('editor', {
+export const useGuideStore = defineStore('guide-editor', {
   state: () => ({
     nodes: [],
     symbols: [],
@@ -96,6 +96,7 @@ export const useEditorStore = defineStore('editor', {
       maxVisibleNodes: 2500,
       guideRemoveOnFill: true,
       groupEditMode: false,
+      viewSide: 'front',
       stackGrid: {
         enabled: false,
         cols: 8,
@@ -671,7 +672,7 @@ export const useEditorStore = defineStore('editor', {
 
         const selectedIds = new Set(edit.selectedIds || [])
         const selected = symbol.nodes.filter((n) => selectedIds.has(n.id) && !n?.meta?.guide)
-        if (selected.length < 2) return null
+        if (selected.length < 1) return null
 
         let minX = Infinity
         let minY = Infinity
@@ -738,7 +739,7 @@ export const useEditorStore = defineStore('editor', {
       }
 
       const selected = this.selectedNodes.filter((n) => !n?.meta?.guide && n.kind !== 'symbol')
-      if (selected.length < 2) return null
+      if (selected.length < 1) return null
 
       let minX = Infinity
       let minY = Infinity
@@ -1828,6 +1829,75 @@ export const useEditorStore = defineStore('editor', {
       this.markDirty('Actualizar globo')
     },
 
+    flipGroup({ axis = 'x', groupId = null } = {}) {
+      if (this.ui?.symbolEdit?.active) return false
+      const targetId = String(groupId || this.selectedGroupId || '')
+      if (!targetId) return false
+
+      const group = (this.groups || []).find((g) => String(g.id) === targetId)
+      if (!group || !Array.isArray(group.childIds) || !group.childIds.length) return false
+
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const nodes = group.childIds
+        .map((id) => nodeById.get(String(id)))
+        .filter((n) => n && !n?.meta?.guide)
+
+      if (!nodes.length) return false
+
+      const boxes = nodes.map((n) => nodeBoundingBoxForSymbols(n, this.symbols))
+      const minLeft = Math.min(...boxes.map((b) => b.left))
+      const maxRight = Math.max(...boxes.map((b) => b.right))
+      const minTop = Math.min(...boxes.map((b) => b.top))
+      const maxBottom = Math.max(...boxes.map((b) => b.bottom))
+
+      if (
+        !Number.isFinite(minLeft) ||
+        !Number.isFinite(maxRight) ||
+        !Number.isFinite(minTop) ||
+        !Number.isFinite(maxBottom)
+      )
+        return false
+
+      const centerX = (minLeft + maxRight) / 2
+      const centerY = (minTop + maxBottom) / 2
+      const axisKey = axis === 'y' || axis === 'vertical' ? 'y' : 'x'
+      let changed = false
+
+      for (const node of nodes) {
+        if (node.locked) continue
+        const meta = node.meta && typeof node.meta === 'object' ? { ...node.meta } : null
+        if (axisKey === 'x') {
+          const sx = Number.isFinite(Number(node.scaleX)) ? Number(node.scaleX) : 1
+          const nextScaleX = sx === 0 ? -1 : -sx
+          node.x = centerX - (Number(node.x || 0) - centerX)
+          node.scaleX = nextScaleX
+          if (meta?.topView && Number.isFinite(Number(meta.topView.x))) {
+            meta.topView = { ...meta.topView, x: -Number(meta.topView.x) }
+            node.meta = meta
+          }
+          changed = true
+          continue
+        }
+
+        const sy = Number.isFinite(Number(node.scaleY)) ? Number(node.scaleY) : 1
+        const nextScaleY = sy === 0 ? -1 : -sy
+        node.y = centerY - (Number(node.y || 0) - centerY)
+        node.scaleY = nextScaleY
+        if (meta?.topView && Number.isFinite(Number(meta.topView.y))) {
+          meta.topView = { ...meta.topView, y: -Number(meta.topView.y) }
+          node.meta = meta
+        }
+        changed = true
+      }
+
+      if (changed) {
+        const label = axisKey === 'x' ? 'Voltear grupo horizontal' : 'Voltear grupo vertical'
+        this.markDirty(label)
+      }
+
+      return changed
+    },
+
     toggleLockSelection() {
       const ids = Array.isArray(this.selectedIds) ? [...this.selectedIds] : []
       if (!ids.length) return
@@ -1985,6 +2055,11 @@ export const useEditorStore = defineStore('editor', {
 
     setPanMode(value) {
       this.ui.panMode = !!value
+    },
+
+    setViewSide(side) {
+      const next = side === 'back' ? 'back' : 'front'
+      this.ui.viewSide = next
     },
 
     setCanvasDimensions({ widthCm, heightCm } = {}) {
@@ -2316,7 +2391,7 @@ export const useEditorStore = defineStore('editor', {
     // ===== Autosave =====
     initAutosave({ skipRestore = false } = {}) {
       try {
-        const saved = localStorage.getItem('autosave_enabled')
+        const saved = localStorage.getItem('autosave_enabled_guide')
         if (saved !== null) this.autosave.enabled = saved === 'true'
         else this.autosave.enabled = true
       } catch {
@@ -2358,7 +2433,7 @@ export const useEditorStore = defineStore('editor', {
 
     flushAutosaveNow() {
       // safe si se llama como event handler
-      const store = this?.$id ? this : useEditorStore()
+      const store = this?.$id ? this : useGuideStore()
 
       if (!store.autosave.enabled) return
       if (!store.autosave.isDirty) return
@@ -2385,7 +2460,7 @@ export const useEditorStore = defineStore('editor', {
       if (this.autosave.enabled === next) return
       this.autosave.enabled = next
       try {
-        localStorage.setItem('autosave_enabled', String(next))
+        localStorage.setItem('autosave_enabled_guide', String(next))
       } catch {
         // ignore
       }
@@ -3268,7 +3343,8 @@ export const useEditorStore = defineStore('editor', {
           .filter((n) => String(n.groupId) === String(g.id))
           .map((n) => String(n.id))
         if (childIds.length >= 2) {
-          groups.push({ id: g.id, name: String(g.name || 'Grupo'), childIds })
+          const meta = g.meta && typeof g.meta === 'object' ? { ...g.meta } : null
+          groups.push({ id: g.id, name: String(g.name || 'Grupo'), childIds, meta })
         }
       }
 
@@ -3442,14 +3518,57 @@ export const useEditorStore = defineStore('editor', {
             ? [this.clipboard.group]
             : []
 
+        const createdGroups = []
         for (const group of groups) {
           const childIds = (group.childIds || []).map((id) => idMap.get(String(id))).filter(Boolean)
           if (childIds.length > 1) {
-            this.createGroup({ name: group.name || 'Grupo', childIds })
+            const meta = group.meta && typeof group.meta === 'object' ? { ...group.meta } : null
+            const groupId = this.createGroup({ name: group.name || 'Grupo', childIds, meta })
+            if (groupId) {
+              const created = (this.groups || []).find((g) => String(g.id) === String(groupId))
+              const isLayer =
+                meta?.kind === 'layer' || /^(fila|cluster)\b/i.test(String(group.name || ''))
+              if (created && isLayer) {
+                const inferLayout = () => {
+                  const nodesById = new Map(this.nodes.map((n) => [String(n.id), n]))
+                  const hasTopViewCircle = childIds.some((id) => {
+                    const node = nodesById.get(String(id))
+                    const y = Number(node?.meta?.topView?.y)
+                    return Number.isFinite(y) && Math.abs(y) > 0.01
+                  })
+                  return hasTopViewCircle ? 'circle' : 'wall'
+                }
+                created.meta = {
+                  ...(meta && typeof meta === 'object' ? meta : {}),
+                  kind: 'layer',
+                  layout: meta?.layout || inferLayout(),
+                  perLayer: meta?.perLayer || childIds.length,
+                  sizeIn: meta?.sizeIn || 12,
+                  gapIn: meta?.gapIn ?? 0,
+                  rotationDeg: meta?.rotationDeg ?? 0,
+                }
+              }
+
+              createdGroups.push({
+                id: groupId,
+                meta: created?.meta,
+                name: group.name || 'Grupo',
+                childIds,
+              })
+            }
           }
         }
 
-        this.setSelection(newIds)
+        const isLayerGroup = (group) => {
+          if (group?.meta?.kind === 'layer') return true
+          return /^(fila|cluster)\b/i.test(String(group?.name || ''))
+        }
+
+        if (createdGroups.length === 1 && isLayerGroup(createdGroups[0])) {
+          this.selectGroup(createdGroups[0].id)
+        } else {
+          this.setSelection(newIds)
+        }
 
         if (multi) session.count += 1
         return newIds.length ? newIds[0] : null
@@ -3491,10 +3610,822 @@ export const useEditorStore = defineStore('editor', {
     },
 
     // ===== Align / Distribute =====
+    flipSelection({ axis = 'x' } = {}) {
+      const list = this.selectedNodes.filter((n) => !n.locked)
+      if (!list.length) return false
+
+      const boxes = list.map((n) => nodeBoundingBoxForSymbols(n, this.symbols))
+      const minLeft = Math.min(...boxes.map((b) => b.left))
+      const maxRight = Math.max(...boxes.map((b) => b.right))
+      const minTop = Math.min(...boxes.map((b) => b.top))
+      const maxBottom = Math.max(...boxes.map((b) => b.bottom))
+
+      if (
+        !Number.isFinite(minLeft) ||
+        !Number.isFinite(maxRight) ||
+        !Number.isFinite(minTop) ||
+        !Number.isFinite(maxBottom)
+      )
+        return false
+
+      const centerX = (minLeft + maxRight) / 2
+      const centerY = (minTop + maxBottom) / 2
+      const axisKey = axis === 'y' || axis === 'vertical' ? 'y' : 'x'
+      const patchById = {}
+
+      for (const node of list) {
+        const meta = node.meta && typeof node.meta === 'object' ? { ...node.meta } : null
+        if (axisKey === 'x') {
+          const sx = Number.isFinite(Number(node.scaleX)) ? Number(node.scaleX) : 1
+          patchById[node.id] = {
+            x: centerX - (Number(node.x || 0) - centerX),
+            scaleX: sx === 0 ? -1 : -sx,
+          }
+          if (meta?.topView && Number.isFinite(Number(meta.topView.x))) {
+            patchById[node.id].meta = { ...meta, topView: { ...meta.topView, x: -meta.topView.x } }
+          }
+          continue
+        }
+
+        const sy = Number.isFinite(Number(node.scaleY)) ? Number(node.scaleY) : 1
+        patchById[node.id] = {
+          y: centerY - (Number(node.y || 0) - centerY),
+          scaleY: sy === 0 ? -1 : -sy,
+        }
+        if (meta?.topView && Number.isFinite(Number(meta.topView.y))) {
+          patchById[node.id].meta = { ...meta, topView: { ...meta.topView, y: -meta.topView.y } }
+        }
+      }
+
+      this.beginHistoryBatch()
+      try {
+        this.updateNodes(patchById)
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return true
+    },
+
+    updateLayerGroup({ groupId = null, perLayer, sizeIn, gapIn, rotationDeg } = {}) {
+      if (this.ui?.symbolEdit?.active) return false
+      const gid = String(groupId || '')
+      if (!gid) return false
+      const group = (this.groups || []).find((g) => String(g.id) === gid)
+      if (!group) return false
+      const isLayer =
+        group?.meta?.kind === 'layer' || /^(fila|cluster)\b/i.test(String(group?.name || ''))
+      if (!isLayer) return false
+
+      let layout = group.meta?.layout === 'circle' ? 'circle' : 'wall'
+      if (!group.meta?.layout && existing.length) {
+        const hasTopViewCircle = existing.some((n) => {
+          const tv = n?.meta?.topView
+          const y = Number(tv?.y)
+          return Number.isFinite(y) && Math.abs(y) > 0.01
+        })
+        layout = hasTopViewCircle ? 'circle' : 'wall'
+      }
+      const widthCm = Number(this.ui?.guideWall?.widthCm || this.canvas?.widthCm || 0)
+      const heightCm = Number(this.ui?.guideWall?.heightCm || this.canvas?.heightCm || 0)
+      const widthPx = widthCm * PX_PER_CM
+      const heightPx = heightCm * PX_PER_CM
+      if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
+        return false
+
+      const maxRadiusCm = Number(this.ui?.guideWall?.maxRadiusCm || 0)
+      const maxRadiusPx =
+        Number.isFinite(maxRadiusCm) && maxRadiusCm > 0 ? maxRadiusCm * PX_PER_CM : null
+
+      const rawCount = Number(perLayer ?? group.meta?.perLayer ?? 3)
+      const nextCount = Number.isFinite(rawCount) ? clamp(rawCount, 3, 6) : 3
+      const rawSize = Number(sizeIn ?? group.meta?.sizeIn ?? 12)
+      const nextSizeIn = Number.isFinite(rawSize) ? clamp(rawSize, 1, 60) : 12
+      const rawGap = Number(gapIn ?? group.meta?.gapIn ?? 0)
+      const nextGapIn = Number.isFinite(rawGap) ? rawGap : 0
+      const rawRotation = Number(rotationDeg ?? group.meta?.rotationDeg ?? 0)
+      const nextRotationDeg = Number.isFinite(rawRotation) ? rawRotation : 0
+
+      const radiusRaw = (nextSizeIn * 2.54 * PX_PER_CM) / 2
+      const radiusPx = maxRadiusPx
+        ? clamp(radiusRaw, PX_PER_CM * 0.5, maxRadiusPx)
+        : Math.max(1, radiusRaw)
+      const diameter = radiusPx * 2
+      let step = diameter + nextGapIn * 2.54 * PX_PER_CM
+      if (step <= diameter * 0.2) step = diameter * 0.2
+
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const existing = (group.childIds || []).map((id) => nodeById.get(String(id))).filter(Boolean)
+
+      const yValues = existing.map((n) => Number(n.y)).filter((y) => Number.isFinite(y))
+      const avgY = yValues.length ? yValues.reduce((sum, v) => sum + v, 0) / yValues.length : null
+      const rowY = Number.isFinite(avgY)
+        ? clamp(avgY, radiusPx, heightPx - radiusPx)
+        : heightPx - radiusPx
+
+      const xValues = existing.map((n) => Number(n.x)).filter((x) => Number.isFinite(x))
+      const avgX = xValues.length ? xValues.reduce((sum, v) => sum + v, 0) / xValues.length : null
+      let minLeft = Infinity
+      let maxRight = -Infinity
+      for (const node of existing) {
+        const x = Number(node?.x)
+        if (!Number.isFinite(x)) continue
+        const nodeRadius = Number(node?.meta?.radiusX ?? radiusPx)
+        minLeft = Math.min(minLeft, x - nodeRadius)
+        maxRight = Math.max(maxRight, x + nodeRadius)
+      }
+      let centerX = widthPx / 2
+      if (Number.isFinite(minLeft) && Number.isFinite(maxRight) && maxRight >= minLeft) {
+        centerX = (minLeft + maxRight) / 2
+      } else if (Number.isFinite(avgX)) {
+        centerX = avgX
+      }
+      centerX = clamp(centerX, radiusPx, widthPx - radiusPx)
+
+      const seed = existing.find((n) => n) || {}
+      const baseColor = String(seed.color || '#e0e0e0')
+      const baseMeta = seed.meta && typeof seed.meta === 'object' ? seed.meta : {}
+      const guideAlpha = Number.isFinite(Number(baseMeta.guideAlpha))
+        ? Number(baseMeta.guideAlpha)
+        : 100
+      const guideLineWidth = Number.isFinite(Number(baseMeta.guideLineWidth))
+        ? Number(baseMeta.guideLineWidth)
+        : 2
+      const guideLineDash = baseMeta.guideLineDash !== undefined ? !!baseMeta.guideLineDash : true
+      const guideFillColor = String(baseMeta.guideFillColor || '#ffffff')
+      const guideFillAlpha = Number.isFinite(Number(baseMeta.guideFillAlpha))
+        ? Number(baseMeta.guideFillAlpha)
+        : 0
+
+      const positions = []
+      if (layout === 'circle') {
+        if (nextCount === 1) {
+          positions.push({ x: centerX, y: rowY, tv: { x: 0, y: 0 } })
+        } else {
+          const sinTerm = Math.sin(Math.PI / nextCount)
+          const circleRadius = sinTerm > 0 ? step / (2 * sinTerm) : diameter
+          const maxCircleRadius = Math.max(0, centerX - radiusPx)
+          const ringRadius =
+            maxCircleRadius > 0 ? Math.min(circleRadius, maxCircleRadius) : circleRadius
+          const angleStep = (Math.PI * 2) / nextCount
+          const rotationRad = (nextRotationDeg * Math.PI) / 180
+          for (let i = 0; i < nextCount; i += 1) {
+            const angle = -Math.PI / 2 + angleStep * i + rotationRad
+            const x = clamp(centerX + Math.cos(angle) * ringRadius, radiusPx, widthPx - radiusPx)
+            positions.push({
+              x,
+              y: rowY,
+              tv: { x: Math.cos(angle) * 3, y: Math.sin(angle) * 3 },
+            })
+          }
+        }
+      } else {
+        const totalWidth = (nextCount - 1) * step + diameter
+        let startX = centerX - totalWidth / 2 + radiusPx
+        if (!Number.isFinite(startX)) startX = radiusPx
+        for (let i = 0; i < nextCount; i += 1) {
+          const x = clamp(startX + i * step, radiusPx, widthPx - radiusPx)
+          positions.push({ x, y: rowY, tv: { x: 0, y: 0 } })
+        }
+      }
+
+      const keep = existing.slice(0, nextCount)
+      const remove = existing.slice(nextCount)
+      const patchById = {}
+      for (let i = 0; i < keep.length; i += 1) {
+        const node = keep[i]
+        const pos = positions[i]
+        if (!node || !pos) continue
+        const currentMeta = node.meta && typeof node.meta === 'object' ? node.meta : {}
+        patchById[node.id] = {
+          x: pos.x,
+          y: pos.y,
+          meta: {
+            ...currentMeta,
+            radiusX: radiusPx,
+            radiusY: radiusPx,
+            guideLine: true,
+            guideAlpha,
+            guideLineDash,
+            guideLineWidth,
+            guideFillColor: currentMeta.guideFillColor ?? guideFillColor,
+            guideFillAlpha: Number.isFinite(Number(currentMeta.guideFillAlpha))
+              ? Number(currentMeta.guideFillAlpha)
+              : guideFillAlpha,
+            guide: false,
+            topView: pos.tv,
+          },
+        }
+      }
+
+      this.beginHistoryBatch()
+      try {
+        if (Object.keys(patchById).length) this.updateNodes(patchById)
+
+        if (remove.length) {
+          const removeSet = new Set(remove.map((n) => String(n.id)))
+          this.nodes = this.nodes.filter((n) => !removeSet.has(String(n.id)))
+        }
+
+        const newIds = []
+        if (positions.length > keep.length) {
+          for (let i = keep.length; i < positions.length; i += 1) {
+            const pos = positions[i]
+            const node = {
+              id: uid(),
+              kind: 'balloon',
+              name: 'Guia',
+              typeId: 'round-11',
+              x: pos.x,
+              y: pos.y,
+              rotation: 0,
+              scaleX: 1,
+              scaleY: 1,
+              opacity: 1,
+              color: baseColor,
+              locked: false,
+              visible: true,
+              zIndex: this.nodes.length,
+              groupId: null,
+              meta: {
+                radiusX: radiusPx,
+                radiusY: radiusPx,
+                knot: false,
+                shape: 'ellipse',
+                guideLine: true,
+                guideAlpha,
+                guideLineDash,
+                guideLineWidth,
+                guideFillColor,
+                guideFillAlpha,
+                guide: false,
+                topView: pos.tv,
+              },
+            }
+            this.nodes.push(node)
+            newIds.push(node.id)
+          }
+        }
+
+        const nextChildIds = [...keep.map((n) => n.id), ...newIds]
+        group.childIds = nextChildIds
+        group.meta = {
+          ...(group.meta && typeof group.meta === 'object' ? group.meta : {}),
+          kind: 'layer',
+          layout,
+          perLayer: nextCount,
+          sizeIn: nextSizeIn,
+          gapIn: nextGapIn,
+          rotationDeg: nextRotationDeg,
+        }
+
+        applyGroupMembership(this)
+        this.reindexZ()
+        this.setSelection(nextChildIds)
+        this.selectGroup(group.id)
+        this.markDirty('Editar cluster')
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return true
+    },
+    createArcFromClusters({
+      groupIds = [],
+      width = 200,
+      height = 120,
+      unit = 'cm',
+      sizeIn = 9,
+    } = {}) {
+      if (this.ui?.symbolEdit?.active) return null
+      const ids = (Array.isArray(groupIds) ? groupIds : []).map((id) => String(id)).filter(Boolean)
+      if (!ids.length) return null
+
+      const groupMap = new Map((this.groups || []).map((g) => [String(g.id), g]))
+      const selectedGroups = ids.map((id) => groupMap.get(String(id))).filter(Boolean)
+      if (!selectedGroups.length) return null
+
+      const patternGroups = selectedGroups.filter((group) => isLayerGroup(group))
+      if (!patternGroups.length) return null
+
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const patternData = patternGroups
+        .map((group) => {
+          const nodes = resolveGroupNodes(nodeById, group)
+          if (!nodes.length) return null
+          const bounds = groupBoundsForNodes(nodes, this.symbols)
+          if (!bounds) return null
+          return { group, nodes, bounds, center: { x: bounds.centerX, y: bounds.centerY } }
+        })
+        .filter(Boolean)
+      if (!patternData.length) return null
+
+      patternData.sort((a, b) => b.center.y - a.center.y)
+      const patternLength = patternData.length
+
+      const selectionBounds = patternData.reduce(
+        (acc, item) => {
+          acc.left = Math.min(acc.left, item.bounds.left)
+          acc.right = Math.max(acc.right, item.bounds.right)
+          acc.top = Math.min(acc.top, item.bounds.top)
+          acc.bottom = Math.max(acc.bottom, item.bounds.bottom)
+          return acc
+        },
+        { left: Infinity, right: -Infinity, top: Infinity, bottom: -Infinity },
+      )
+      if (!Number.isFinite(selectionBounds.left) || !Number.isFinite(selectionBounds.bottom))
+        return null
+
+      const centerX = (selectionBounds.left + selectionBounds.right) / 2
+      const baseY = selectionBounds.bottom
+
+      const baseSpacingRaw = averageSpacing(patternData.map((item) => item.center.y))
+      const fallbackSpacing = patternData.reduce((acc, item) => acc + item.bounds.height, 0)
+      const baseSpacingHint =
+        Number.isFinite(baseSpacingRaw) && baseSpacingRaw > 0
+          ? baseSpacingRaw
+          : Math.max(1, fallbackSpacing / patternLength)
+
+      const estimatedSizeIn = estimateGroupSizeIn(patternData.flatMap((item) => item.nodes))
+      const baseSizeIn =
+        Number.isFinite(estimatedSizeIn) && estimatedSizeIn > 0 ? estimatedSizeIn : 9
+      const nextSizeIn = Number.isFinite(Number(sizeIn)) ? Math.max(1, Number(sizeIn)) : baseSizeIn
+
+      const widthPx = arcUnitToPx(width, unit)
+      const heightPx = arcUnitToPx(height, unit)
+      if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
+        return null
+
+      const geometry = buildArcGeometry({ centerX, baseY, widthPx, heightPx })
+      if (!geometry) return null
+
+      const patternWeights = patternData.map((item) => clusterEffectiveWidth(item.bounds))
+      const baseSpacingPx = averageWeight(patternWeights) || baseSpacingHint
+      const sizeRatio = nextSizeIn / baseSizeIn
+      const scaledWeights = patternWeights.map((w) => Math.max(1, w) * sizeRatio)
+      const avgScaledWeight = averageWeight(scaledWeights)
+      const targetCount = Math.max(
+        2,
+        patternLength,
+        Math.round(geometry.arcLength / Math.max(1, avgScaledWeight)),
+      )
+      const weights = buildWeightSequence(scaledWeights, targetCount)
+      const positions = buildArcPointsWeighted(geometry, weights)
+      if (!positions.length) return null
+
+      const arcId = `arc_${Math.random().toString(36).slice(2, 10)}`
+      const arcMeta = buildArcMeta({
+        arcId,
+        width: Number(width),
+        height: Number(height),
+        unit: unit === 'in' ? 'in' : 'cm',
+        sizeIn: nextSizeIn,
+        baseSizeIn,
+        baseSpacingPx,
+        patternLength,
+        centerX,
+        baseY,
+      })
+
+      const templates = patternData.map((item) => {
+        const baseSize =
+          Number(item.group?.meta?.sizeIn) || estimateGroupSizeIn(item.nodes) || baseSizeIn
+        const arcAngle = Number(item.group?.meta?.arcAngle || 0)
+        const nodes = item.nodes.map((node) => ({
+          base: deepClone(node),
+          localX: Number(node.x || 0) - item.center.x,
+          localY: Number(node.y || 0) - item.center.y,
+        }))
+        return { group: item.group, nodes, sizeIn: baseSize, arcAngle }
+      })
+
+      this.beginHistoryBatch()
+      try {
+        const patchById = {}
+        for (let i = 0; i < patternLength; i += 1) {
+          const item = patternData[i]
+          const target = positions[i]
+          if (!item || !target) continue
+          const group = item.group
+          const nodes = item.nodes
+          const sizeRatio = nextSizeIn / baseSizeIn
+          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
+          const desiredRotation = computeArcRotation(weight)
+          const rotDeg = (desiredRotation * 180) / Math.PI
+          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
+          const pivotLocal = pivotFromNodes(nodes, item.center, normal)
+
+          for (const node of nodes) {
+            const localX = Number(node.x || 0) - item.center.x - pivotLocal.x
+            const localY = Number(node.y || 0) - item.center.y - pivotLocal.y
+            const scaledX = localX * sizeRatio
+            const scaledY = localY * sizeRatio
+            const rotated = rotateVector(scaledX, scaledY, desiredRotation)
+            const nextMeta = scaleNodeMeta(node, sizeRatio)
+            patchById[node.id] = {
+              x: target.x + rotated.x,
+              y: target.y + rotated.y,
+              rotation: Number(node.rotation || 0) + rotDeg,
+              meta: {
+                ...nextMeta,
+                arcId,
+                arcIndex: i,
+                arcPatternIndex: i % patternLength,
+                arcAngle: target.angle,
+                arc: arcMeta,
+              },
+            }
+          }
+
+          group.meta = {
+            ...(group.meta && typeof group.meta === 'object' ? group.meta : {}),
+            kind: group.meta?.kind || 'layer',
+            arcId,
+            arcIndex: i,
+            arcPatternIndex: i % patternLength,
+            arcAngle: target.angle,
+            arcRotation: desiredRotation,
+            arc: arcMeta,
+            sizeIn: nextSizeIn,
+          }
+        }
+
+        if (Object.keys(patchById).length) this.updateNodes(patchById)
+
+        for (let i = patternLength; i < positions.length; i += 1) {
+          const target = positions[i]
+          const template = templates[i % patternLength]
+          if (!target || !template) continue
+
+          const newGroupId = groupUid()
+          const ratio = Number(template.sizeIn) ? nextSizeIn / Number(template.sizeIn) : 1
+          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
+          const desiredRotation = computeArcRotation(weight)
+          const rotDeg = (desiredRotation * 180) / Math.PI
+          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
+          const pivotLocal = pivotFromLocal(template.nodes, normal)
+
+          const nextNodes = template.nodes.map((source) => {
+            const node = deepClone(source.base)
+            const meta = scaleNodeMeta(node, ratio)
+            const localX = Number(source.localX || 0) - pivotLocal.x
+            const localY = Number(source.localY || 0) - pivotLocal.y
+            const scaledX = localX * ratio
+            const scaledY = localY * ratio
+            const rotated = rotateVector(scaledX, scaledY, desiredRotation)
+            const id = uid()
+            return {
+              ...node,
+              id,
+              groupId: newGroupId,
+              x: target.x + rotated.x,
+              y: target.y + rotated.y,
+              rotation: Number(node.rotation || 0) + rotDeg,
+              zIndex: this.nodes.length,
+              meta: {
+                ...meta,
+                arcId,
+                arcIndex: i,
+                arcPatternIndex: i % patternLength,
+                arcAngle: target.angle,
+                arc: arcMeta,
+              },
+            }
+          })
+
+          this.nodes.push(...nextNodes)
+          const label = template.group?.name || `Cluster ${i + 1}`
+          this.groups.push({
+            id: newGroupId,
+            name: label,
+            childIds: nextNodes.map((n) => n.id),
+            meta: {
+              ...(template.group?.meta && typeof template.group.meta === 'object'
+                ? template.group.meta
+                : {}),
+              kind: template.group?.meta?.kind || 'layer',
+              arcId,
+              arcIndex: i,
+              arcPatternIndex: i % patternLength,
+              arcAngle: target.angle,
+              arcRotation: desiredRotation,
+              arc: arcMeta,
+              sizeIn: nextSizeIn,
+            },
+          })
+        }
+
+        applyGroupMembership(this)
+        this.reindexZ()
+        const firstGroup = patternData[0]?.group
+        if (firstGroup) this.selectGroup(firstGroup.id)
+        this.markDirty('Crear arco')
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return arcId
+    },
+    updateArcFromClusters({
+      arcId = '',
+      width = null,
+      height = null,
+      unit = null,
+      sizeIn = null,
+    } = {}) {
+      if (this.ui?.symbolEdit?.active) return false
+      const targetId = String(arcId || '')
+      if (!targetId) return false
+
+      const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
+      const groups = (this.groups || []).filter((group) => {
+        const direct = group?.meta?.arcId || group?.meta?.arc?.id
+        if (direct && String(direct) === targetId) return true
+        const childIds = Array.isArray(group?.childIds) ? group.childIds : []
+        for (const id of childIds) {
+          const node = nodeById.get(String(id))
+          const nodeArc = node?.meta?.arcId || node?.meta?.arc?.id
+          if (nodeArc && String(nodeArc) === targetId) return true
+        }
+        return false
+      })
+      if (!groups.length) return false
+      const groupData = groups
+        .map((group) => {
+          const nodes = resolveGroupNodes(nodeById, group)
+          if (!nodes.length) return null
+          const bounds = groupBoundsForNodes(nodes, this.symbols)
+          if (!bounds) return null
+          return {
+            group,
+            nodes,
+            bounds,
+            center: { x: bounds.centerX, y: bounds.centerY },
+            arcIndex: resolveArcIndex(group, nodes),
+            arcPatternIndex: resolveArcPatternIndex(group, nodes),
+            arcAngle: resolveArcAngle(group, nodes),
+            arcRotation: resolveArcRotation(group, nodes),
+          }
+        })
+        .filter(Boolean)
+      if (!groupData.length) return false
+
+      groupData.sort((a, b) => {
+        const aIndex = Number(a.arcIndex ?? 0)
+        const bIndex = Number(b.arcIndex ?? 0)
+        return aIndex - bIndex
+      })
+
+      const baseMeta = groupData[0]?.group?.meta?.arc || {}
+      const arcUnit = unit === 'in' || unit === 'cm' ? unit : baseMeta.unit || 'cm'
+      const nextWidth = Number.isFinite(Number(width)) ? Number(width) : Number(baseMeta.width || 0)
+      const nextHeight = Number.isFinite(Number(height))
+        ? Number(height)
+        : Number(baseMeta.height || 0)
+      const prevSize = Number(baseMeta.sizeIn || groupData[0]?.group?.meta?.sizeIn || 9)
+      const nextSize = Number.isFinite(Number(sizeIn)) ? Number(sizeIn) : prevSize
+      const baseSizeIn = Number(baseMeta.baseSizeIn || prevSize || 9)
+      const baseSpacingMeta = Number(baseMeta.baseSpacingPx || 0)
+      const patternIndices = groupData
+        .map((item) => Number(item.arcPatternIndex))
+        .filter((value) => Number.isFinite(value))
+      const patternLengthFromGroups = patternIndices.length ? Math.max(...patternIndices) + 1 : 0
+      const patternLength = Number(
+        baseMeta.patternLength || patternLengthFromGroups || groupData.length || 1,
+      )
+
+      const selectionBounds = groupData.reduce(
+        (acc, item) => {
+          acc.left = Math.min(acc.left, item.bounds.left)
+          acc.right = Math.max(acc.right, item.bounds.right)
+          acc.bottom = Math.max(acc.bottom, item.bounds.bottom)
+          return acc
+        },
+        { left: Infinity, right: -Infinity, bottom: -Infinity },
+      )
+      let centerX = Number.isFinite(Number(baseMeta.centerX))
+        ? Number(baseMeta.centerX)
+        : (selectionBounds.left + selectionBounds.right) / 2
+      let baseY = Number.isFinite(Number(baseMeta.baseY))
+        ? Number(baseMeta.baseY)
+        : selectionBounds.bottom
+      if (!Number.isFinite(centerX)) centerX = 0
+      if (!Number.isFinite(baseY)) baseY = 0
+
+      const widthPx = arcUnitToPx(nextWidth, arcUnit)
+      const heightPx = arcUnitToPx(nextHeight, arcUnit)
+      if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
+        return false
+
+      const geometry = buildArcGeometry({ centerX, baseY, widthPx, heightPx })
+      if (!geometry) return false
+
+      const patternGroups = groupData
+        .filter((item) => Number.isFinite(Number(item.arcPatternIndex)))
+        .sort((a, b) => Number(a.arcPatternIndex || 0) - Number(b.arcPatternIndex || 0))
+      const patternSource = patternGroups.length ? patternGroups : groupData.slice(0, patternLength)
+      const patternWeights = patternSource.map((item) => clusterEffectiveWidth(item.bounds))
+      const baseSpacingPx = Number.isFinite(baseSpacingMeta)
+        ? baseSpacingMeta
+        : averageWeight(patternWeights)
+      const patternSizeRatio = nextSize / baseSizeIn
+      const scaledWeights = patternWeights.map((w) => Math.max(1, w) * patternSizeRatio)
+      const avgScaledWeight = averageWeight(scaledWeights)
+      const targetCount = Math.max(
+        2,
+        patternLength,
+        Math.round(geometry.arcLength / Math.max(1, avgScaledWeight)),
+      )
+      const weights = buildWeightSequence(scaledWeights, targetCount)
+      const positions = buildArcPointsWeighted(geometry, weights)
+      if (!positions.length) return false
+
+      const arcMeta = buildArcMeta({
+        arcId: targetId,
+        width: nextWidth,
+        height: nextHeight,
+        unit: arcUnit,
+        sizeIn: nextSize,
+        baseSizeIn,
+        baseSpacingPx,
+        patternLength,
+        centerX: geometry.centerX,
+        baseY: geometry.baseY,
+      })
+
+      const templateGroups = groupData
+        .filter((item) => Number.isFinite(Number(item.arcPatternIndex)))
+        .sort((a, b) => Number(a.arcPatternIndex || 0) - Number(b.arcPatternIndex || 0))
+      const templates = (
+        templateGroups.length ? templateGroups : groupData.slice(0, patternLength)
+      ).map((item) => {
+        const baseSize =
+          Number(item.group?.meta?.sizeIn) || estimateGroupSizeIn(item.nodes) || nextSize
+        const arcAngle = Number(item.arcAngle || 0)
+        const arcRotation = Number(item.arcRotation || 0)
+        const nodes = item.nodes.map((node) => ({
+          base: deepClone(node),
+          localX: Number(node.x || 0) - item.center.x,
+          localY: Number(node.y || 0) - item.center.y,
+        }))
+        return { group: item.group, nodes, sizeIn: baseSize, arcAngle, arcRotation }
+      })
+
+      const keepGroups = groupData.slice(0, positions.length)
+      const removeGroups = groupData.slice(positions.length)
+      const sizeRatio = prevSize ? nextSize / prevSize : 1
+
+      this.beginHistoryBatch()
+      try {
+        const patchById = {}
+        for (let i = 0; i < keepGroups.length; i += 1) {
+          const item = keepGroups[i]
+          const target = positions[i]
+          if (!item || !target) continue
+          const group = item.group
+          const nodes = item.nodes
+          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
+          const desiredRotation = computeArcRotation(weight)
+          const currentRotation = Number(item.arcRotation || 0)
+          const deltaRotation = desiredRotation - currentRotation
+          const rotDeg = (deltaRotation * 180) / Math.PI
+          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
+          const pivotLocal = pivotFromNodes(nodes, item.center, normal)
+
+          for (const node of nodes) {
+            const localX = Number(node.x || 0) - item.center.x - pivotLocal.x
+            const localY = Number(node.y || 0) - item.center.y - pivotLocal.y
+            const scaledX = localX * sizeRatio
+            const scaledY = localY * sizeRatio
+            const rotated = rotateVector(scaledX, scaledY, deltaRotation)
+            const nextMeta = scaleNodeMeta(node, sizeRatio)
+            patchById[node.id] = {
+              x: target.x + rotated.x,
+              y: target.y + rotated.y,
+              rotation: Number(node.rotation || 0) + rotDeg,
+              meta: {
+                ...nextMeta,
+                arcId: targetId,
+                arcIndex: i,
+                arcPatternIndex: i % patternLength,
+                arcAngle: target.angle,
+                arc: arcMeta,
+              },
+            }
+          }
+
+          group.meta = {
+            ...(group.meta && typeof group.meta === 'object' ? group.meta : {}),
+            kind: group.meta?.kind || 'layer',
+            arcId: targetId,
+            arcIndex: i,
+            arcPatternIndex: i % patternLength,
+            arcAngle: target.angle,
+            arcRotation: desiredRotation,
+            arc: arcMeta,
+            sizeIn: nextSize,
+          }
+        }
+
+        if (Object.keys(patchById).length) this.updateNodes(patchById)
+
+        if (removeGroups.length) {
+          const removeGroupIds = new Set(removeGroups.map((item) => String(item.group.id)))
+          const removeNodeIds = new Set(
+            removeGroups.flatMap((item) =>
+              Array.isArray(item.group.childIds) ? item.group.childIds : [],
+            ),
+          )
+          this.nodes = this.nodes.filter((n) => !removeNodeIds.has(String(n.id)))
+          this.groups = this.groups.filter((g) => !removeGroupIds.has(String(g.id)))
+        }
+
+        for (let i = keepGroups.length; i < positions.length; i += 1) {
+          const target = positions[i]
+          const template = templates[i % templates.length]
+          if (!target || !template) continue
+
+          const newGroupId = groupUid()
+          const ratio = Number(template.sizeIn) ? nextSize / Number(template.sizeIn) : 1
+          const weight = arcRotationWeight(target.y, geometry.baseY, geometry.heightPx)
+          const desiredRotation = computeArcRotation(weight)
+          const currentRotation = Number(template.arcRotation || 0)
+          const deltaRotation = desiredRotation - currentRotation
+          const rotDeg = (deltaRotation * 180) / Math.PI
+          const normal = arcNormal(geometry.centerX, geometry.centerY, target)
+          const pivotLocal = pivotFromLocal(template.nodes, normal)
+
+          const nextNodes = template.nodes.map((source) => {
+            const node = deepClone(source.base)
+            const meta = scaleNodeMeta(node, ratio)
+            const localX = Number(source.localX || 0) - pivotLocal.x
+            const localY = Number(source.localY || 0) - pivotLocal.y
+            const scaledX = localX * ratio
+            const scaledY = localY * ratio
+            const rotated = rotateVector(scaledX, scaledY, deltaRotation)
+            const id = uid()
+            return {
+              ...node,
+              id,
+              groupId: newGroupId,
+              x: target.x + rotated.x,
+              y: target.y + rotated.y,
+              rotation: Number(node.rotation || 0) + rotDeg,
+              zIndex: this.nodes.length,
+              meta: {
+                ...meta,
+                arcId: targetId,
+                arcIndex: i,
+                arcPatternIndex: i % patternLength,
+                arcAngle: target.angle,
+                arc: arcMeta,
+              },
+            }
+          })
+
+          this.nodes.push(...nextNodes)
+          const label = template.group?.name || `Cluster ${i + 1}`
+          this.groups.push({
+            id: newGroupId,
+            name: label,
+            childIds: nextNodes.map((n) => n.id),
+            meta: {
+              ...(template.group?.meta && typeof template.group.meta === 'object'
+                ? template.group.meta
+                : {}),
+              kind: template.group?.meta?.kind || 'layer',
+              arcId: targetId,
+              arcIndex: i,
+              arcPatternIndex: i % patternLength,
+              arcAngle: target.angle,
+              arcRotation: desiredRotation,
+              arc: arcMeta,
+              sizeIn: nextSize,
+            },
+          })
+        }
+
+        applyGroupMembership(this)
+        this.reindexZ()
+        this.markDirty('Actualizar arco')
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return true
+    },
     alignSelection(mode, { alignToCanvas = false } = {}) {
+      const inGroupEdit = !!this.ui?.groupEditMode && !!this.selectedGroupId
       const nodes = this.selectedNodes.filter((n) => !n.locked)
       const minCount = alignToCanvas ? 1 : 2
       if (nodes.length < minCount) return
+
+      if (!inGroupEdit) {
+        const groupIdSet = new Set(
+          nodes.map((n) => String(n.groupId || '')).filter((id) => id && id !== 'null'),
+        )
+        if (groupIdSet.size) return
+      }
 
       this.beginHistoryBatch()
       try {
@@ -3554,11 +4485,19 @@ export const useEditorStore = defineStore('editor', {
     },
 
     distributeSelection(axis) {
+      const inGroupEdit = !!this.ui?.groupEditMode && !!this.selectedGroupId
       const nodes = this.selectedNodes
         .filter((n) => !n.locked)
         .sort((a, b) => (axis === 'x' ? a.x - b.x : a.y - b.y))
 
       if (nodes.length < 3) return
+
+      if (!inGroupEdit) {
+        const groupIdSet = new Set(
+          nodes.map((n) => String(n.groupId || '')).filter((id) => id && id !== 'null'),
+        )
+        if (groupIdSet.size) return
+      }
 
       this.beginHistoryBatch()
       try {
@@ -3797,6 +4736,316 @@ function guidesInRect(store, rect, color = null) {
     const box = nodeBoundingBoxForSymbols(n, store.symbols)
     return rectsIntersect(rect, { x: box.x, y: box.y, width: box.width, height: box.height })
   })
+}
+
+function isLayerGroup(group) {
+  if (!group) return false
+  if (group?.meta?.kind === 'layer') return true
+  return /^(fila|cluster)\b/i.test(String(group?.name || ''))
+}
+
+function resolveGroupNodes(nodeById, group) {
+  const ids = Array.isArray(group?.childIds) ? group.childIds : []
+  return ids.map((id) => nodeById.get(String(id))).filter(Boolean)
+}
+
+function groupBoundsForNodes(nodes = [], symbols = []) {
+  let minLeft = Infinity
+  let maxRight = -Infinity
+  let minTop = Infinity
+  let maxBottom = -Infinity
+
+  for (const node of nodes) {
+    const box = nodeBoundingBoxForSymbols(node, symbols)
+    minLeft = Math.min(minLeft, box.left)
+    maxRight = Math.max(maxRight, box.right)
+    minTop = Math.min(minTop, box.top)
+    maxBottom = Math.max(maxBottom, box.bottom)
+  }
+
+  if (!Number.isFinite(minLeft) || !Number.isFinite(maxRight)) return null
+
+  return {
+    left: minLeft,
+    right: maxRight,
+    top: minTop,
+    bottom: maxBottom,
+    width: maxRight - minLeft,
+    height: maxBottom - minTop,
+    centerX: (minLeft + maxRight) / 2,
+    centerY: (minTop + maxBottom) / 2,
+  }
+}
+
+function averageSpacing(values = []) {
+  const list = values.map((v) => Number(v)).filter((v) => Number.isFinite(v))
+  if (list.length < 2) return 0
+  list.sort((a, b) => b - a)
+  let sum = 0
+  for (let i = 1; i < list.length; i += 1) {
+    sum += Math.abs(list[i - 1] - list[i])
+  }
+  return sum / (list.length - 1)
+}
+
+function estimateGroupSizeIn(nodes = []) {
+  let sum = 0
+  let count = 0
+  for (const node of nodes) {
+    const rx = Number(node?.meta?.radiusX)
+    const ry = Number(node?.meta?.radiusY)
+    const base = Math.max(rx, ry)
+    if (!Number.isFinite(base) || base <= 0) continue
+    const sx = Math.abs(Number(node?.scaleX ?? 1)) || 1
+    const sy = Math.abs(Number(node?.scaleY ?? 1)) || 1
+    const radiusPx = base * Math.max(sx, sy)
+    sum += radiusPx * 2
+    count += 1
+  }
+  if (!count) return null
+  const diameterCm = sum / count / PX_PER_CM
+  return Math.round((diameterCm / 2.54) * 100) / 100
+}
+
+function arcUnitToPx(value, unit) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  const cm = unit === 'in' ? n * 2.54 : n
+  return cm * PX_PER_CM
+}
+
+function buildArcMeta({
+  arcId,
+  width,
+  height,
+  unit,
+  sizeIn,
+  baseSizeIn,
+  baseSpacingPx,
+  patternLength,
+  centerX,
+  baseY,
+} = {}) {
+  return {
+    id: arcId,
+    width,
+    height,
+    unit,
+    sizeIn,
+    baseSizeIn,
+    baseSpacingPx,
+    patternLength,
+    centerX,
+    baseY,
+  }
+}
+
+function buildArcGeometry({ centerX, baseY, widthPx, heightPx }) {
+  const w = Number(widthPx)
+  const h = Number(heightPx)
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null
+  const half = w / 2
+  const radius = (h * h + half * half) / (2 * h)
+  if (!Number.isFinite(radius) || radius <= 0) return null
+  const centerY = Number(baseY) + (radius - h)
+  const startAngle = Math.atan2(Number(baseY) - centerY, -half)
+  const endAngle = Math.atan2(Number(baseY) - centerY, half)
+  const arcLength = Math.abs(endAngle - startAngle) * radius
+  return {
+    centerX: Number(centerX),
+    centerY,
+    radius,
+    startAngle,
+    endAngle,
+    arcLength,
+    baseY: Number(baseY),
+    heightPx: h,
+  }
+}
+
+function buildArcPointsWeighted(geometry, weights = []) {
+  const points = []
+  if (!geometry) return points
+  const list = Array.isArray(weights) ? weights : []
+  const total = list.reduce((sum, w) => sum + (Number(w) || 0), 0)
+  if (!list.length || total <= 0) return points
+
+  let acc = 0
+  for (const weight of list) {
+    const w = Number(weight) || 0
+    const centerWeight = acc + w / 2
+    const t = total > 0 ? centerWeight / total : 0
+    const angle = geometry.startAngle + t * (geometry.endAngle - geometry.startAngle)
+    points.push({
+      x: geometry.centerX + geometry.radius * Math.cos(angle),
+      y: geometry.centerY + geometry.radius * Math.sin(angle),
+      angle,
+    })
+    acc += w
+  }
+  return points
+}
+
+function buildWeightSequence(weights, count) {
+  const list = Array.isArray(weights) ? weights : []
+  if (!list.length) return []
+  const total = Math.max(1, Math.round(Number(count) || 0))
+  const result = []
+  for (let i = 0; i < total; i += 1) {
+    result.push(list[i % list.length])
+  }
+  return result
+}
+
+function averageWeight(weights = []) {
+  const list = weights.map((w) => Number(w)).filter((w) => Number.isFinite(w) && w > 0)
+  if (!list.length) return 0
+  return list.reduce((sum, w) => sum + w, 0) / list.length
+}
+
+function clusterEffectiveWidth(bounds) {
+  if (!bounds) return 0
+  const w = Number(bounds.width)
+  const h = Number(bounds.height)
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return 0
+  return Math.max(w, h)
+}
+
+function computeArcRotation(weight) {
+  const t = clamp(Number(weight || 0), 0, 1)
+  const max = 0.6
+  return max * t
+}
+
+function arcRotationWeight(y, baseY, heightPx) {
+  const top = Number(baseY) - Number(heightPx)
+  if (!Number.isFinite(top) || !Number.isFinite(y) || !Number.isFinite(heightPx) || heightPx <= 0)
+    return 1
+  const raw = clamp((Number(baseY) - Number(y)) / Number(heightPx), 0, 1)
+  return raw * raw * (3 - 2 * raw)
+}
+
+function rotateVector(dx, dy, angle) {
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return {
+    x: dx * cos - dy * sin,
+    y: dx * sin + dy * cos,
+  }
+}
+
+function arcNormal(centerX, centerY, point) {
+  const vx = Number(centerX) - Number(point?.x)
+  const vy = Number(centerY) - Number(point?.y)
+  const len = Math.hypot(vx, vy)
+  if (!Number.isFinite(len) || len <= 0) return { x: 0, y: -1 }
+  return { x: vx / len, y: vy / len }
+}
+
+function pivotFromNodes(nodes = [], center, normal) {
+  const unit = normalizeVector(normal)
+  if (!unit) return { x: 0, y: 0 }
+  const cx = Number(center?.x || 0)
+  const cy = Number(center?.y || 0)
+  let maxProj = -Infinity
+  for (const node of nodes) {
+    const dx = Number(node?.x || 0) - cx
+    const dy = Number(node?.y || 0) - cy
+    const proj = dx * unit.x + dy * unit.y
+    if (Number.isFinite(proj)) maxProj = Math.max(maxProj, proj)
+  }
+  if (!Number.isFinite(maxProj)) maxProj = 0
+  return { x: unit.x * maxProj, y: unit.y * maxProj }
+}
+
+function pivotFromLocal(nodes = [], normal) {
+  const unit = normalizeVector(normal)
+  if (!unit) return { x: 0, y: 0 }
+  let maxProj = -Infinity
+  for (const node of nodes) {
+    const dx = Number(node?.localX || 0)
+    const dy = Number(node?.localY || 0)
+    const proj = dx * unit.x + dy * unit.y
+    if (Number.isFinite(proj)) maxProj = Math.max(maxProj, proj)
+  }
+  if (!Number.isFinite(maxProj)) maxProj = 0
+  return { x: unit.x * maxProj, y: unit.y * maxProj }
+}
+
+function normalizeVector(vec) {
+  if (!vec) return null
+  const x = Number(vec.x || 0)
+  const y = Number(vec.y || 0)
+  const len = Math.hypot(x, y)
+  if (!Number.isFinite(len) || len <= 0) return null
+  return { x: x / len, y: y / len }
+}
+
+function scaleNodeMeta(node, ratio) {
+  const meta = node?.meta && typeof node.meta === 'object' ? { ...node.meta } : {}
+  if (!Number.isFinite(ratio) || ratio === 1) return meta
+
+  if (node?.kind === 'image') {
+    const w = Number(meta.width)
+    const h = Number(meta.height)
+    if (Number.isFinite(w)) meta.width = w * ratio
+    if (Number.isFinite(h)) meta.height = h * ratio
+    return meta
+  }
+
+  if (node?.kind === 'text') {
+    const fontSize = Number(meta.fontSize)
+    const width = Number(meta.width)
+    if (Number.isFinite(fontSize)) meta.fontSize = fontSize * ratio
+    if (Number.isFinite(width)) meta.width = width * ratio
+    return meta
+  }
+
+  const rx = Number(meta.radiusX)
+  const ry = Number(meta.radiusY)
+  if (Number.isFinite(rx)) meta.radiusX = rx * ratio
+  if (Number.isFinite(ry)) meta.radiusY = ry * ratio
+  return meta
+}
+
+function resolveArcIndex(group, nodes = []) {
+  const direct = Number(group?.meta?.arcIndex)
+  if (Number.isFinite(direct)) return direct
+  for (const node of nodes) {
+    const idx = Number(node?.meta?.arcIndex)
+    if (Number.isFinite(idx)) return idx
+  }
+  return 0
+}
+
+function resolveArcPatternIndex(group, nodes = []) {
+  const direct = Number(group?.meta?.arcPatternIndex)
+  if (Number.isFinite(direct)) return direct
+  for (const node of nodes) {
+    const idx = Number(node?.meta?.arcPatternIndex)
+    if (Number.isFinite(idx)) return idx
+  }
+  return 0
+}
+
+function resolveArcAngle(group, nodes = []) {
+  const direct = Number(group?.meta?.arcAngle)
+  if (Number.isFinite(direct)) return direct
+  for (const node of nodes) {
+    const angle = Number(node?.meta?.arcAngle)
+    if (Number.isFinite(angle)) return angle
+  }
+  return 0
+}
+
+function resolveArcRotation(group, nodes = []) {
+  const direct = Number(group?.meta?.arcRotation)
+  if (Number.isFinite(direct)) return direct
+  for (const node of nodes) {
+    const angle = Number(node?.meta?.arcRotation)
+    if (Number.isFinite(angle)) return angle
+  }
+  return 0
 }
 
 function deepClone(obj) {

@@ -3,7 +3,7 @@
     <div class="card-body">
       <div class="d-flex align-items-start justify-content-between">
         <div>
-          <div class="fw-bold">Canvas</div>
+          <div class="fw-bold"><i class="bi bi-grid-3x3-gap me-2"></i>Canvas</div>
           <div class="text-muted panel-subtitle">Ajusta tamaño y desplazamiento</div>
         </div>
         <div v-if="!collapsed" class="d-flex gap-2">
@@ -12,7 +12,7 @@
             type="button"
             @click="applyPerformancePreset"
           >
-            Rendimiento
+            <i class="bi bi-speedometer2 me-1"></i>Rendimiento
           </button>
         </div>
         <div class="d-flex gap-2">
@@ -37,7 +37,9 @@
 
       <div v-show="!collapsed" class="row g-2 mt-3">
         <div class="col">
-          <label class="form-label small">Ancho (cm)</label>
+          <label class="form-label small"
+            ><i class="bi bi-arrows-horizontal me-1"></i>Ancho (cm)</label
+          >
           <input
             type="number"
             class="form-control form-control-sm"
@@ -46,9 +48,12 @@
             v-model.number="local.widthCm"
             @blur="handleWidthBlur"
           />
+          <div class="text-muted xsmall mt-1">{{ widthCmLabel }}</div>
         </div>
         <div class="col">
-          <label class="form-label small">Alto (cm)</label>
+          <label class="form-label small"
+            ><i class="bi bi-arrows-vertical me-1"></i>Alto (cm)</label
+          >
           <input
             type="number"
             class="form-control form-control-sm"
@@ -57,27 +62,34 @@
             v-model.number="local.heightCm"
             @blur="handleHeightBlur"
           />
+          <div class="text-muted xsmall mt-1">{{ heightCmLabel }}</div>
         </div>
       </div>
 
       <div v-show="!collapsed" class="row g-2 mt-3">
         <div class="col">
-          <label class="form-label small">Desplazamiento X (cm)</label>
+          <label class="form-label small"
+            ><i class="bi bi-arrows-move me-1"></i>Desplazamiento X (cm)</label
+          >
           <input
             type="number"
             class="form-control form-control-sm"
             step="0.1"
             v-model.number="local.offsetX"
           />
+          <div class="text-muted xsmall mt-1">{{ offsetXLabel }}</div>
         </div>
         <div class="col">
-          <label class="form-label small">Desplazamiento Y (cm)</label>
+          <label class="form-label small"
+            ><i class="bi bi-arrows-move me-1"></i>Desplazamiento Y (cm)</label
+          >
           <input
             type="number"
             class="form-control form-control-sm"
             step="0.1"
             v-model.number="local.offsetY"
           />
+          <div class="text-muted xsmall mt-1">{{ offsetYLabel }}</div>
         </div>
       </div>
 
@@ -358,7 +370,9 @@
 
       <div v-show="!collapsed" class="row g-2 mt-3">
         <div class="col">
-          <label class="form-label small">Limite de nodos visibles</label>
+          <label class="form-label small">
+            <i class="bi bi-collection me-1"></i>Limite de nodos visibles
+          </label>
           <input
             type="number"
             class="form-control form-control-sm"
@@ -377,11 +391,11 @@
         :disabled="!hasOffset"
         @click="applyOffset"
       >
-        Aplicar desplazamiento
+        <i class="bi bi-arrows-move me-1"></i>Aplicar desplazamiento
       </button>
 
       <div v-show="!collapsed" class="mt-4">
-        <div class="fw-bold small">Fondo</div>
+        <div class="fw-bold small"><i class="bi bi-palette me-1"></i>Fondo</div>
         <div class="text-muted panel-subtitle">Color</div>
         <div class="d-flex align-items-center gap-2 mt-2 flex-wrap">
           <button
@@ -411,9 +425,9 @@
 
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 
-const store = useEditorStore()
+const store = useActiveEditorStore()
 
 const local = reactive({
   widthCm: store.canvas.widthCm,
@@ -446,6 +460,10 @@ const collapsed = ref(false)
 const aspectRatio = ref(local.heightCm ? local.widthCm / Math.max(1, local.heightCm) : 1)
 
 const lockIcon = computed(() => (local.locked ? 'bi-lock' : 'bi-unlock'))
+const widthCmLabel = computed(() => formatCmIn(local.widthCm))
+const heightCmLabel = computed(() => formatCmIn(local.heightCm))
+const offsetXLabel = computed(() => formatCmIn(local.offsetX))
+const offsetYLabel = computed(() => formatCmIn(local.offsetY))
 const hasOffset = computed(() => !!local.offsetX || !!local.offsetY)
 const swatches = ['#ffffff', '#f1f3f5', '#cfd4da', '#868e96', '#212529']
 
@@ -549,6 +567,18 @@ function handleHeightBlur() {
     local.widthCm = Math.max(1, local.heightCm * Math.max(0.01, aspectRatio.value))
   }
   commitDimensions()
+}
+
+function formatCmIn(value) {
+  const cm = roundNumber(value)
+  const inch = roundNumber(Number(value || 0) / 2.54)
+  return `${cm} cm · ${inch} in`
+}
+
+function roundNumber(value) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return 0
+  return Math.round(n * 100) / 100
 }
 
 function toggleLock() {

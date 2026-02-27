@@ -90,9 +90,9 @@
 
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import { useEditorStore } from '@/stores/editor.store'
+import { useActiveEditorStore } from '@/stores/editor-context'
 
-const store = useEditorStore()
+const store = useActiveEditorStore()
 const collapsed = ref(false)
 
 const symbols = computed(() => {
