@@ -80,6 +80,49 @@
           </div>
         </div>
 
+        <div class="row g-2 mt-2 align-items-end">
+          <div class="col">
+            <label class="form-label small">Clusters</label>
+            <input
+              :value="clusterCountValue"
+              class="form-control form-control-sm"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="Auto"
+              @input="updateNullableNumber('clusterCount', $event.target.value)"
+            />
+            <div class="text-muted xsmall mt-1">Vacio o 0 = automatico</div>
+          </div>
+          <div class="col">
+            <label class="form-label small">Base clusters</label>
+            <input
+              :value="baseClusterCountValue"
+              class="form-control form-control-sm"
+              type="number"
+              min="0"
+              step="1"
+              placeholder="Auto"
+              @input="updateNullableNumber('baseClusterCount', $event.target.value)"
+            />
+            <div class="text-muted xsmall mt-1">Auto: {{ baseClusterCountAutoLabel }}</div>
+          </div>
+          <div class="col-auto">
+            <div class="form-check mt-4">
+              <input
+                id="arc-respect-height"
+                class="form-check-input"
+                type="checkbox"
+                :checked="respectHeight"
+                @change="updateField('respectHeight', $event.target.checked)"
+              />
+              <label class="form-check-label small" for="arc-respect-height">
+                Respetar altura
+              </label>
+            </div>
+          </div>
+        </div>
+
         <div class="d-flex flex-column gap-2 mt-3">
           <button
             class="btn btn-sm btn-primary"
@@ -134,6 +177,10 @@ const props = defineProps({
   height: { type: Number, default: 0 },
   unit: { type: String, default: 'cm' },
   sizeIn: { type: Number, default: 9 },
+  clusterCount: { type: Number, default: null },
+  baseClusterCount: { type: Number, default: null },
+  baseClusterAuto: { type: Number, default: 0 },
+  respectHeight: { type: Boolean, default: false },
   canCreate: { type: Boolean, default: false },
   canUpdate: { type: Boolean, default: false },
 })
@@ -141,6 +188,21 @@ const props = defineProps({
 const emit = defineEmits(['update', 'create', 'update-arc'])
 
 const sizeOptions = [5, 9, 12, 24, 36]
+const clusterCountValue = computed(() => {
+  const next = Number(props.clusterCount)
+  if (!Number.isFinite(next) || next <= 0) return ''
+  return Math.round(next)
+})
+const baseClusterCountValue = computed(() => {
+  const next = Number(props.baseClusterCount)
+  if (!Number.isFinite(next) || next <= 0) return ''
+  return Math.round(next)
+})
+const baseClusterCountAutoLabel = computed(() => {
+  const next = Number(props.baseClusterAuto)
+  if (!Number.isFinite(next) || next <= 0) return '0'
+  return String(Math.round(next))
+})
 const sizeCmLabel = computed(() => {
   const inches = Number(sizeOptions.includes(Number(props.sizeIn)) ? props.sizeIn : 9)
   const cm = Math.round(inches * 2.54 * 100) / 100
@@ -153,5 +215,15 @@ function updateField(key, value) {
 
 function updateNumber(key, value) {
   emit('update', { [key]: Number(value) })
+}
+
+function updateNullableNumber(key, value) {
+  const raw = String(value || '').trim()
+  if (!raw) {
+    emit('update', { [key]: null })
+    return
+  }
+  const next = Number(raw)
+  emit('update', { [key]: Number.isFinite(next) ? next : null })
 }
 </script>

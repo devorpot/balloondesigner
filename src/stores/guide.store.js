@@ -3896,6 +3896,9 @@ export const useGuideStore = defineStore('guide-editor', {
       height = 120,
       unit = 'cm',
       sizeIn = 9,
+      clusterCount = null,
+      baseClusterCount = null,
+      respectHeight = false,
     } = {}) {
       if (this.ui?.symbolEdit?.active) return null
       const ids = (Array.isArray(groupIds) ? groupIds : []).map((id) => String(id)).filter(Boolean)
@@ -3953,25 +3956,49 @@ export const useGuideStore = defineStore('guide-editor', {
           ? canvasHeightPx
           : selectionBounds.bottom
       const baseY = outerBaseY - paddingPx
+      const baseHeightCm = 100
+      const baseHeightPx = baseHeightCm * PX_PER_CM
+      const arcBaseY = Math.max(0, baseY - baseHeightPx)
 
       const rawWidthPx = arcUnitToPx(width, unit)
       const rawHeightPx = arcUnitToPx(height, unit)
       const widthPx = Math.max(1, rawWidthPx - paddingPx * 2)
-      const heightPx = Math.max(1, rawHeightPx - paddingPx * 2)
+      const useExactHeight = !!respectHeight
+      const heightPadding = useExactHeight ? 0 : paddingPx * 2
+      const heightPx = Math.max(1, rawHeightPx - heightPadding)
       if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
         return null
 
-      const geometry = buildArcGeometry({ centerX, baseY, widthPx, heightPx })
+      const geometry = buildArcGeometry({ centerX, baseY: arcBaseY, widthPx, heightPx })
       if (!geometry) return null
 
       const baseSpacingPx = Math.max(1, balloonDiameterPx)
       const stepPx = Math.max(1, baseSpacingPx)
-      const targetCount = Math.max(
-        2,
-        patternLength,
-        Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1,
-      )
-      const positions = buildArcPointsEven(geometry, targetCount)
+      const autoBaseCount = Math.max(0, Math.floor(baseHeightPx / Math.max(1, stepPx)) + 1)
+      const desiredBaseCount = Number(baseClusterCount)
+      const hasDesiredBaseCount = Number.isFinite(desiredBaseCount) && desiredBaseCount > 0
+      const baseCountRaw = hasDesiredBaseCount ? Math.round(desiredBaseCount) : autoBaseCount
+      const desiredCount = Number(clusterCount)
+      const hasDesiredCount = Number.isFinite(desiredCount) && desiredCount > 0
+      const arcCountAuto = Math.max(0, Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1)
+      const totalCountAuto = Math.max(2, patternLength, baseCountRaw * 2 + arcCountAuto)
+      const targetCount = hasDesiredCount
+        ? Math.max(2, patternLength, Math.round(desiredCount))
+        : totalCountAuto
+      const baseCount = Math.min(baseCountRaw, Math.floor(targetCount / 2))
+      const arcCount = Math.max(0, targetCount - baseCount * 2)
+      const startX = geometry.centerX + geometry.radius * Math.cos(geometry.startAngle)
+      const endX = geometry.centerX + geometry.radius * Math.cos(geometry.endAngle)
+      const basePositions = []
+      for (let i = 0; i < baseCount; i += 1) {
+        basePositions.push({ x: startX, y: baseY - i * stepPx, angle: 0 })
+      }
+      const arcPositions = arcCount ? buildArcPointsEven(geometry, arcCount) : []
+      const endBasePositions = []
+      for (let i = 0; i < baseCount; i += 1) {
+        endBasePositions.push({ x: endX, y: baseY - i * stepPx, angle: 0 })
+      }
+      const positions = [...basePositions, ...arcPositions, ...endBasePositions]
       if (!positions.length) return null
 
       const arcId = `arc_${Math.random().toString(36).slice(2, 10)}`
@@ -3984,8 +4011,13 @@ export const useGuideStore = defineStore('guide-editor', {
         baseSizeIn,
         baseSpacingPx,
         patternLength,
+        targetCount: hasDesiredCount ? targetCount : null,
+        respectHeight: useExactHeight,
+        baseHeightCm,
+        baseClusterCount: hasDesiredBaseCount ? Math.round(desiredBaseCount) : null,
+        baseClusterAuto: autoBaseCount,
         centerX,
-        baseY,
+        baseY: geometry.baseY,
       })
 
       const templates = patternData.map((item) => {
@@ -4126,6 +4158,9 @@ export const useGuideStore = defineStore('guide-editor', {
       height = null,
       unit = null,
       sizeIn = null,
+      clusterCount = null,
+      baseClusterCount = null,
+      respectHeight = null,
     } = {}) {
       if (this.ui?.symbolEdit?.active) return false
       const targetId = String(arcId || '')
@@ -4171,6 +4206,24 @@ export const useGuideStore = defineStore('guide-editor', {
       })
 
       const baseMeta = groupData[0]?.group?.meta?.arc || {}
+      const nextRespectHeight =
+        respectHeight === null || respectHeight === undefined
+          ? !!baseMeta.respectHeight
+          : !!respectHeight
+      const baseHeightCm = Number(baseMeta.baseHeightCm)
+      const resolvedBaseHeightCm =
+        Number.isFinite(baseHeightCm) && baseHeightCm > 0 ? baseHeightCm : 100
+      const baseHeightPx = resolvedBaseHeightCm * PX_PER_CM
+      const baseClusterCountFromMeta = Number(baseMeta.baseClusterCount)
+      const hasBaseClusterCountFromMeta =
+        Number.isFinite(baseClusterCountFromMeta) && baseClusterCountFromMeta > 0
+      const desiredBaseCount = Number(baseClusterCount)
+      const hasDesiredBaseCount = Number.isFinite(desiredBaseCount) && desiredBaseCount > 0
+      const resolvedBaseClusterCount = hasDesiredBaseCount
+        ? Math.round(desiredBaseCount)
+        : hasBaseClusterCountFromMeta
+          ? Math.round(baseClusterCountFromMeta)
+          : null
       const arcUnit = unit === 'in' || unit === 'cm' ? unit : baseMeta.unit || 'cm'
       const nextWidth = Number.isFinite(Number(width)) ? Number(width) : Number(baseMeta.width || 0)
       const nextHeight = Number.isFinite(Number(height))
@@ -4205,20 +4258,22 @@ export const useGuideStore = defineStore('guide-editor', {
       const prevBalloonRadiusPx = (prevSize * 2.54 * PX_PER_CM) / 2
       const nextBalloonRadiusPx = (nextSize * 2.54 * PX_PER_CM) / 2
       const outerBaseY = Number.isFinite(Number(baseMeta.baseY))
-        ? Number(baseMeta.baseY) + currentClusterRadiusPx
+        ? Number(baseMeta.baseY) + baseHeightPx + currentClusterRadiusPx
         : selectionBounds.bottom
       let baseY = outerBaseY - nextClusterRadiusPx
       if (!Number.isFinite(centerX)) centerX = 0
       if (!Number.isFinite(baseY)) baseY = 0
+      const arcBaseY = Math.max(0, baseY - baseHeightPx)
 
       const rawWidthPx = arcUnitToPx(nextWidth, arcUnit)
       const rawHeightPx = arcUnitToPx(nextHeight, arcUnit)
       const widthPx = Math.max(1, rawWidthPx - nextClusterRadiusPx * 2)
-      const heightPx = Math.max(1, rawHeightPx - nextClusterRadiusPx * 2)
+      const heightPadding = nextRespectHeight ? 0 : nextClusterRadiusPx * 2
+      const heightPx = Math.max(1, rawHeightPx - heightPadding)
       if (!Number.isFinite(widthPx) || !Number.isFinite(heightPx) || widthPx <= 0 || heightPx <= 0)
         return false
 
-      const geometry = buildArcGeometry({ centerX, baseY, widthPx, heightPx })
+      const geometry = buildArcGeometry({ centerX, baseY: arcBaseY, widthPx, heightPx })
       if (!geometry) return false
 
       const patternGroups = groupData
@@ -4228,12 +4283,35 @@ export const useGuideStore = defineStore('guide-editor', {
       const balloonDiameterPx = nextSize * 2.54 * PX_PER_CM
       const baseSpacingPx = Math.max(1, balloonDiameterPx)
       const stepPx = Math.max(1, baseSpacingPx)
-      const targetCount = Math.max(
-        2,
-        patternLength,
-        Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1,
-      )
-      const positions = buildArcPointsEven(geometry, targetCount)
+      const rawDesiredCount = Number(clusterCount)
+      const hasDesiredCount = Number.isFinite(rawDesiredCount) && rawDesiredCount > 0
+      const rawBaseCount = Number(baseMeta.targetCount)
+      const hasBaseCount = Number.isFinite(rawBaseCount) && rawBaseCount > 0
+      const resolvedDesiredCount = hasDesiredCount
+        ? Math.round(rawDesiredCount)
+        : hasBaseCount
+          ? Math.round(rawBaseCount)
+          : null
+      const normalizedDesiredCount = resolvedDesiredCount ? Math.max(2, resolvedDesiredCount) : null
+      const autoBaseCount = Math.max(0, Math.floor(baseHeightPx / Math.max(1, stepPx)) + 1)
+      const baseCountRaw = resolvedBaseClusterCount || autoBaseCount
+      const arcCountAuto = Math.max(0, Math.floor(geometry.arcLength / Math.max(1, stepPx)) + 1)
+      const totalCountAuto = Math.max(2, patternLength, baseCountRaw * 2 + arcCountAuto)
+      const targetCount = normalizedDesiredCount ? normalizedDesiredCount : totalCountAuto
+      const baseCount = Math.min(baseCountRaw, Math.floor(targetCount / 2))
+      const arcCount = Math.max(0, targetCount - baseCount * 2)
+      const startX = geometry.centerX + geometry.radius * Math.cos(geometry.startAngle)
+      const endX = geometry.centerX + geometry.radius * Math.cos(geometry.endAngle)
+      const basePositions = []
+      for (let i = 0; i < baseCount; i += 1) {
+        basePositions.push({ x: startX, y: baseY - i * stepPx, angle: 0 })
+      }
+      const arcPositions = arcCount ? buildArcPointsEven(geometry, arcCount) : []
+      const endBasePositions = []
+      for (let i = 0; i < baseCount; i += 1) {
+        endBasePositions.push({ x: endX, y: baseY - i * stepPx, angle: 0 })
+      }
+      const positions = [...basePositions, ...arcPositions, ...endBasePositions]
       if (!positions.length) return false
 
       const arcMeta = buildArcMeta({
@@ -4245,6 +4323,11 @@ export const useGuideStore = defineStore('guide-editor', {
         baseSizeIn,
         baseSpacingPx,
         patternLength,
+        targetCount: normalizedDesiredCount,
+        respectHeight: nextRespectHeight,
+        baseHeightCm: resolvedBaseHeightCm,
+        baseClusterCount: resolvedBaseClusterCount,
+        baseClusterAuto: autoBaseCount,
         centerX: geometry.centerX,
         baseY: geometry.baseY,
       })
@@ -4802,6 +4885,11 @@ function buildArcMeta({
   baseSizeIn,
   baseSpacingPx,
   patternLength,
+  targetCount,
+  respectHeight,
+  baseHeightCm,
+  baseClusterCount,
+  baseClusterAuto,
   centerX,
   baseY,
 } = {}) {
@@ -4814,6 +4902,11 @@ function buildArcMeta({
     baseSizeIn,
     baseSpacingPx,
     patternLength,
+    targetCount,
+    respectHeight,
+    baseHeightCm,
+    baseClusterCount,
+    baseClusterAuto,
     centerX,
     baseY,
   }

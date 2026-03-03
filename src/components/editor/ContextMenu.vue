@@ -30,6 +30,33 @@
     <div class="sep"></div>
 
     <div
+      v-if="canClusterConfig"
+      class="submenu"
+      :class="{ 'flip-x': submenuState.cluster.flipX, 'flip-y': submenuState.cluster.flipY }"
+      @mouseenter="onSubmenuEnter('cluster', $event)"
+    >
+      <button class="item" type="button">
+        <span class="label"><i class="bi bi-bezier2"></i> Cluster</span>
+        <span class="hint">▶</span>
+      </button>
+      <div ref="clusterPanel" class="submenu-panel">
+        <button class="item" type="button" @click="emitAction('cluster-copy-config')">
+          <span class="label">Copiar configuracion</span>
+        </button>
+        <button
+          class="item"
+          type="button"
+          :disabled="!canPasteClusterConfig"
+          @click="emitAction('cluster-paste-config')"
+        >
+          <span class="label">Pegar configuracion</span>
+        </button>
+      </div>
+    </div>
+
+    <div v-if="canClusterConfig" class="sep"></div>
+
+    <div
       class="submenu"
       :class="{ 'flip-x': submenuState.group.flipX, 'flip-y': submenuState.group.flipY }"
       @mouseenter="onSubmenuEnter('group', $event)"
@@ -155,6 +182,8 @@ const props = defineProps({
   canEditSymbol: { type: Boolean, default: false },
   canExitSymbol: { type: Boolean, default: false },
   canDetachSymbol: { type: Boolean, default: false },
+  canClusterConfig: { type: Boolean, default: false },
+  canPasteClusterConfig: { type: Boolean, default: false },
 })
 
 const emit = defineEmits(['action', 'close'])
@@ -163,9 +192,11 @@ const menuRef = ref(null)
 const menuPos = ref({ x: 0, y: 0 })
 const groupPanel = ref(null)
 const orderPanel = ref(null)
+const clusterPanel = ref(null)
 const submenuState = reactive({
   group: { flipX: false, flipY: false },
   order: { flipX: false, flipY: false },
+  cluster: { flipX: false, flipY: false },
 })
 
 const menuPadding = 8
@@ -202,7 +233,8 @@ watch(
 )
 
 function onSubmenuEnter(name, event) {
-  const panel = name === 'group' ? groupPanel.value : orderPanel.value
+  const panel =
+    name === 'group' ? groupPanel.value : name === 'cluster' ? clusterPanel.value : orderPanel.value
   const trigger = event?.currentTarget
   if (!panel || !trigger) return
 

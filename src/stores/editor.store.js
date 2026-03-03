@@ -2875,6 +2875,72 @@ export const useEditorStore = defineStore('editor', {
       downloadJson(payload, fileName)
     },
 
+    buildGuideJsonPayloadForNodes({ nodeIds = [] } = {}) {
+      const nodeIdSet = new Set((Array.isArray(nodeIds) ? nodeIds : []).map((id) => String(id)))
+      const nodes = this.nodes.filter((n) => nodeIdSet.has(String(n.id)))
+      const symbolIds = new Set(
+        nodes.filter((n) => n.kind === 'symbol' && n.symbolId).map((n) => String(n.symbolId)),
+      )
+
+      if (symbolIds.size) {
+        const byId = new Map((this.symbols || []).map((s) => [String(s.id), s]))
+        const queue = [...symbolIds]
+        while (queue.length) {
+          const currentId = queue.shift()
+          const symbol = byId.get(String(currentId))
+          if (!symbol) continue
+          for (const n of symbol.nodes || []) {
+            if (n?.kind === 'symbol' && n.symbolId) {
+              const nestedId = String(n.symbolId)
+              if (!symbolIds.has(nestedId)) {
+                symbolIds.add(nestedId)
+                queue.push(nestedId)
+              }
+            }
+          }
+        }
+      }
+
+      const symbols = (this.symbols || []).filter((s) => symbolIds.has(String(s.id)))
+      const groups = (this.groups || [])
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          childIds: (Array.isArray(g.childIds) ? g.childIds : []).filter((id) =>
+            nodeIdSet.has(String(id)),
+          ),
+        }))
+        .filter((g) => g.childIds.length)
+
+      return {
+        version: 1,
+        savedAt: Date.now(),
+        type: 'guide-wall',
+        guideWall: this.ui?.guideWall || null,
+        canvas: {
+          widthCm: Number(this.canvas.widthCm || 0),
+          heightCm: Number(this.canvas.heightCm || 0),
+          offsetXcm: Number(this.canvas.offsetXcm || 0),
+          offsetYcm: Number(this.canvas.offsetYcm || 0),
+          lockRatio: !!this.canvas.lockRatio,
+          backgroundColor: this.canvas.backgroundColor || '#ffffff',
+          displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
+        },
+        nodes: nodes.map((n) => serializeGuideNode(n)),
+        symbols: symbols.map((s) => ({
+          id: s.id,
+          name: String(s.name || 'Simbolo'),
+          nodes: (s.nodes || []).map((n) => serializeGuideNode(n)),
+        })),
+        groups,
+      }
+    },
+
+    exportGuideJsonSelection({ fileName = 'guia-seleccion.json', nodeIds = [] } = {}) {
+      const payload = this.buildGuideJsonPayloadForNodes({ nodeIds })
+      downloadJson(payload, fileName)
+    },
+
     importJsonObject(data) {
       if (!data || !Array.isArray(data.nodes)) {
         window.alert('Archivo inválido: no contiene nodos.')

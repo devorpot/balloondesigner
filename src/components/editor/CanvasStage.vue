@@ -15,6 +15,14 @@
         <div v-if="groupEditMode && groupEditGroup" class="group-edit-hint">
           Editando grupo: <span class="fw-semibold">{{ groupEditGroup.name }}</span>
           <span class="text-muted">· Esc para salir</span>
+          <button
+            class="btn btn-sm btn-light ms-2"
+            type="button"
+            title="Salir de edicion"
+            @click="store.setGroupEditMode({ enabled: false })"
+          >
+            <i class="bi bi-box-arrow-left"></i>
+          </button>
         </div>
         <div v-if="symbolEditActive" class="symbol-edit-hint">
           Editando simbolo: <span class="fw-semibold">{{ symbolEditName }}</span>
@@ -73,6 +81,25 @@
             <i class="bi bi-layer-forward"></i>
           </button>
           <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Copiar configuracion de cluster"
+            @click="onToolbarCopyClusterConfig"
+          >
+            <i class="bi bi-clipboard"></i>
+          </button>
+          <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Pegar configuracion de cluster"
+            :disabled="!canPasteClusterConfig"
+            @click="onToolbarPasteClusterConfig"
+          >
+            <i class="bi bi-clipboard-plus"></i>
+          </button>
+          <button
             class="btn btn-sm btn-light icon-btn text-danger"
             type="button"
             title="Eliminar"
@@ -92,6 +119,8 @@
           :canEditSymbol="canEditSymbol"
           :canExitSymbol="canExitSymbol"
           :canDetachSymbol="canDetachSymbol"
+          :can-cluster-config="canClusterConfig"
+          :can-paste-cluster-config="canPasteClusterConfig"
           @action="onMenuAction"
           @close="closeMenu"
         />
@@ -280,7 +309,7 @@ import { MAX_DISPLAY_SCALE, MIN_CANVAS_CM, MIN_DISPLAY_SCALE, PX_PER_CM } from '
 import ContextMenu from '@/components/editor/ContextMenu.vue'
 
 const store = useActiveEditorStore()
-const isGuideStore = computed(() => store?.$id === 'guide-editor')
+const isGuideStore = computed(() => store?.$id === 'guide-editor' || !!store?.ui?.isGuideStore)
 const catalog = useCatalogStore()
 const emit = defineEmits(['guide-paint'])
 
@@ -288,6 +317,19 @@ const symbolEdit = computed(() => store.ui?.symbolEdit || { active: false })
 const symbolEditActive = computed(() => !!symbolEdit.value?.active)
 const activeSymbolInstanceId = computed(() => symbolEdit.value?.instanceId || null)
 const symbolsById = computed(() => new Map((store.symbols || []).map((s) => [String(s.id), s])))
+const selectedGroup = computed(() => {
+  const gid = store.selectedGroupId
+  if (!gid) return null
+  return (store.groups || []).find((g) => String(g.id) === String(gid)) || null
+})
+const canClusterConfig = computed(() => {
+  if (!isGuideStore.value) return false
+  return !!(selectedGroup.value && Array.isArray(selectedGroup.value.childIds))
+})
+const canPasteClusterConfig = computed(() => {
+  if (!isGuideStore.value) return false
+  return !!store.ui?.clusterConfigClipboard
+})
 const symbolEditName = computed(() => {
   if (!symbolEditActive.value) return ''
   const symbol = (store.symbols || []).find(
@@ -1077,7 +1119,8 @@ function ellipseConfig(n, { listening = true } = {}) {
   const dash = guideLine && n?.meta?.guideLineDash ? [6, 4] : null
   const hitStrokeWidth = guideLine ? Math.max(8, strokeWidth + 6) : 0
   const depthShadow = topViewShadow(n)
-  const shadowEnabled = !!depthShadow && !guideLine
+  const shadowEnabled = !!depthShadow
+  const shadowFactor = guideLine ? 0.25 : 1
   const fillAlpha = guideLine ? guideFillAlpha / 100 : 1
   const fillColor = guideLine ? withAlpha(guideFillColor, fillAlpha) : n.color
 
@@ -1091,10 +1134,10 @@ function ellipseConfig(n, { listening = true } = {}) {
     strokeWidth,
     dash,
     shadowColor: shadowEnabled ? 'rgba(0,0,0,1)' : undefined,
-    shadowOpacity: shadowEnabled ? depthShadow.opacity : 0,
-    shadowBlur: shadowEnabled ? depthShadow.blur : 0,
-    shadowOffsetX: shadowEnabled ? depthShadow.offsetX : 0,
-    shadowOffsetY: shadowEnabled ? depthShadow.offsetY : 0,
+    shadowOpacity: shadowEnabled ? depthShadow.opacity * shadowFactor : 0,
+    shadowBlur: shadowEnabled ? depthShadow.blur * shadowFactor : 0,
+    shadowOffsetX: shadowEnabled ? depthShadow.offsetX * shadowFactor : 0,
+    shadowOffsetY: shadowEnabled ? depthShadow.offsetY * shadowFactor : 0,
     shadowEnabled,
     fillEnabled: true,
     hitFillEnabled: guideLine,
@@ -1116,11 +1159,13 @@ function guideNumberConfig(n) {
   const baseColor =
     fillAlpha <= 10 ? String(n?.color || '#111111') : String(n?.meta?.guideFillColor || '#ffffff')
   const textColor = isDarkColor(baseColor) ? '#ffffff' : '#111111'
+  const width = rx * 2
+  const startX = isBackView.value ? rx : -rx
 
   return {
-    x: -rx,
+    x: startX,
     y: -ry,
-    width: rx * 2,
+    width,
     height: ry * 2,
     text: String(number),
     fontSize,
@@ -1128,6 +1173,7 @@ function guideNumberConfig(n) {
     align: 'center',
     verticalAlign: 'middle',
     fill: textColor,
+    scaleX: isBackView.value ? -1 : 1,
     listening: false,
     perfectDrawEnabled: false,
   }
@@ -1136,15 +1182,18 @@ function guideNumberConfig(n) {
 function textConfig(n, { listening = false } = {}) {
   const meta = n?.meta || {}
   const fontSize = Number(meta.fontSize || 24)
+  const width = Number.isFinite(Number(meta.width)) ? Number(meta.width) : 220
+  const startX = isBackView.value ? width : 0
   return {
-    x: 0,
+    x: startX,
     y: 0,
     text: String(meta.text || 'New text'),
     fontSize: Number.isFinite(fontSize) ? fontSize : 24,
     fontFamily: String(meta.fontFamily || 'Times New Roman'),
     fill: String(meta.fill || n.color || '#222222'),
     align: String(meta.align || 'left'),
-    width: Number.isFinite(Number(meta.width)) ? Number(meta.width) : 220,
+    width,
+    scaleX: isBackView.value ? -1 : 1,
     listening,
   }
 }
@@ -1270,9 +1319,10 @@ function shineConfig(n) {
     y: -18,
     radiusX: 10,
     radiusY: 18,
-    fill: 'rgba(255,255,255,0.35)',
+    fill: guideLine ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.35)',
+    globalCompositeOperation: guideLine ? 'screen' : 'source-over',
     listening: false,
-    visible: !guideLine,
+    visible: true,
     perfectDrawEnabled: false,
   }
 }
@@ -1282,6 +1332,9 @@ function innerShadeConfig(n) {
   const ry = Number(n?.meta?.radiusY ?? 60)
   const maxR = Math.max(rx, ry)
   const guideLine = !!n?.meta?.guideLine
+  const colorStops = guideLine
+    ? [0, 'rgba(0,0,0,0)', 0.7, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.12)']
+    : [0, 'rgba(0,0,0,0)', 0.6, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.22)']
 
   return {
     x: 0,
@@ -1292,9 +1345,10 @@ function innerShadeConfig(n) {
     fillRadialGradientEndPoint: { x: 0, y: 0 },
     fillRadialGradientStartRadius: 0,
     fillRadialGradientEndRadius: maxR,
-    fillRadialGradientColorStops: [0, 'rgba(0,0,0,0)', 0.6, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.22)'],
+    fillRadialGradientColorStops: colorStops,
+    globalCompositeOperation: 'source-over',
     listening: false,
-    visible: !guideLine,
+    visible: true,
     perfectDrawEnabled: false,
   }
 }
@@ -2818,6 +2872,12 @@ function onMenuAction(action) {
   }
 
   if (action === 'delete') store.deleteSelected()
+  if (action === 'cluster-copy-config') {
+    if (store.ui) store.ui.clusterConfigAction = 'copy'
+  }
+  if (action === 'cluster-paste-config') {
+    if (store.ui) store.ui.clusterConfigAction = 'paste'
+  }
 }
 
 function onDocMouseDown() {
@@ -2906,6 +2966,16 @@ function onToolbarDelete() {
   }
   if (!store.selectedId) return
   store.deleteSelected()
+}
+
+function onToolbarCopyClusterConfig() {
+  if (!store.ui) return
+  store.ui.clusterConfigAction = 'copy'
+}
+
+function onToolbarPasteClusterConfig() {
+  if (!store.ui) return
+  store.ui.clusterConfigAction = 'paste'
 }
 
 function onToolbarRotate(delta) {

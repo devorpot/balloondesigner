@@ -72,6 +72,13 @@
           >
             <i class="bi bi-download me-1"></i>Exportar guia JSON
           </button>
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="$emit('export-selection')"
+          >
+            <i class="bi bi-download me-1"></i>Exportar seleccion JSON
+          </button>
           <label class="btn btn-sm btn-outline-secondary mb-0">
             <i class="bi bi-upload me-1"></i>Importar guia JSON
             <input
@@ -125,7 +132,7 @@ defineProps({
   exportVisibleOnly: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'export-guide', 'import-guide'])
+const emit = defineEmits(['update', 'export-guide', 'export-selection', 'import-guide'])
 
 function updateField(key, value) {
   emit('update', { [key]: value })

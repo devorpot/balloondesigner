@@ -36,6 +36,7 @@
               :export-visible-only="guideExportVisibleOnly"
               @update="updateGuideTools"
               @export-guide="exportGuideJson"
+              @export-selection="exportGuideJsonSelection"
               @import-guide="handleImportGuideFile"
             />
             <GuideTemplatesPanel
@@ -88,6 +89,10 @@
               :height="guideArc.height"
               :unit="guideArc.unit"
               :size-in="guideArc.sizeIn"
+              :cluster-count="guideArc.clusterCount"
+              :base-cluster-count="guideArc.baseClusterCount"
+              :base-cluster-auto="guideArc.baseClusterAuto"
+              :respect-height="guideArc.respectHeight"
               :can-create="selectedArcClusterCount > 0"
               :can-update="!!activeArcId"
               @update="updateGuideArcState"
@@ -347,6 +352,10 @@ const guideArc = reactive({
   width: 200,
   height: 120,
   sizeIn: 9,
+  clusterCount: null,
+  baseClusterCount: null,
+  baseClusterAuto: 0,
+  respectHeight: false,
 })
 const guideArcTouched = ref(false)
 const guideMode = computed(() => true)
@@ -553,9 +562,21 @@ watch(
     const nextWidth = Number(meta.width)
     const nextHeight = Number(meta.height)
     const nextSize = Number(meta.sizeIn)
+    const nextClusterCount = Number(meta.targetCount)
+    const nextBaseClusterCount = Number(meta.baseClusterCount)
+    const nextBaseClusterAuto = Number(meta.baseClusterAuto)
     if (Number.isFinite(nextWidth)) guideArc.width = roundToUnit(nextWidth)
     if (Number.isFinite(nextHeight)) guideArc.height = roundToUnit(nextHeight)
     if (Number.isFinite(nextSize)) guideArc.sizeIn = nextSize
+    guideArc.clusterCount =
+      Number.isFinite(nextClusterCount) && nextClusterCount > 0 ? nextClusterCount : null
+    guideArc.baseClusterCount =
+      Number.isFinite(nextBaseClusterCount) && nextBaseClusterCount > 0
+        ? nextBaseClusterCount
+        : null
+    guideArc.baseClusterAuto =
+      Number.isFinite(nextBaseClusterAuto) && nextBaseClusterAuto > 0 ? nextBaseClusterAuto : 0
+    guideArc.respectHeight = !!meta.respectHeight
   },
   { immediate: true },
 )
@@ -750,6 +771,17 @@ function updateGuideArcState(patch) {
   if (Object.prototype.hasOwnProperty.call(patch, 'sizeIn')) {
     const next = Number(patch.sizeIn)
     guideArc.sizeIn = Number.isFinite(next) ? Math.max(1, next) : guideArc.sizeIn
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'clusterCount')) {
+    const next = Number(patch.clusterCount)
+    guideArc.clusterCount = Number.isFinite(next) && next > 0 ? Math.round(next) : null
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'baseClusterCount')) {
+    const next = Number(patch.baseClusterCount)
+    guideArc.baseClusterCount = Number.isFinite(next) && next > 0 ? Math.round(next) : null
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'respectHeight')) {
+    guideArc.respectHeight = !!patch.respectHeight
   }
 }
 
@@ -1038,6 +1070,9 @@ function createGuideArc() {
     height: guideArc.height,
     unit: guideArc.unit,
     sizeIn: guideArc.sizeIn,
+    clusterCount: guideArc.clusterCount,
+    baseClusterCount: guideArc.baseClusterCount,
+    respectHeight: guideArc.respectHeight,
   })
 }
 
@@ -1049,6 +1084,9 @@ function applyGuideArcUpdate() {
     height: guideArc.height,
     unit: guideArc.unit,
     sizeIn: guideArc.sizeIn,
+    clusterCount: guideArc.clusterCount,
+    baseClusterCount: guideArc.baseClusterCount,
+    respectHeight: guideArc.respectHeight,
   })
 }
 
@@ -1657,6 +1695,10 @@ function syncGuideArcDefaults(config) {
   guideArc.unit = unit
   guideArc.width = width
   guideArc.height = height
+  guideArc.clusterCount = null
+  guideArc.baseClusterCount = null
+  guideArc.baseClusterAuto = 0
+  guideArc.respectHeight = false
 }
 
 function addGuideCircle() {

@@ -22,6 +22,11 @@ const routes = [
     component: () => import('@/pages/GuideView.vue'),
   },
   {
+    path: '/builder',
+    name: 'builder-canvas',
+    component: () => import('@/pages/BuilderView.vue'),
+  },
+  {
     path: '/structure',
     name: 'structure-canvas',
     component: () => import('@/pages/StructureView.vue'),
