@@ -39,6 +39,23 @@
           </button>
         </li>
         <li>
+          <button class="dropdown-item" type="button" @click="emit('export-json')">
+            Exportar JSON
+          </button>
+        </li>
+      </ul>
+    </div>
+
+    <div class="btn-group btn-group-sm" role="group">
+      <button
+        class="btn btn-outline-secondary dropdown-toggle"
+        type="button"
+        data-bs-toggle="dropdown"
+      >
+        <i class="bi bi-upload me-1"></i>Importar
+      </button>
+      <ul class="dropdown-menu">
+        <li>
           <label class="dropdown-item file-item">
             Importar JSON
             <input
@@ -49,10 +66,17 @@
             />
           </label>
         </li>
+        <li><hr class="dropdown-divider" /></li>
         <li>
-          <button class="dropdown-item" type="button" @click="emit('export-json')">
-            Exportar JSON
-          </button>
+          <label class="dropdown-item file-item">
+            Importar imagen
+            <input
+              type="file"
+              accept="image/*"
+              class="d-none"
+              @change="(e) => emit('import-image', e)"
+            />
+          </label>
         </li>
       </ul>
     </div>
@@ -78,6 +102,7 @@ const emit = defineEmits([
   'export-guide',
   'export-guide-visible',
   'import-json',
+  'import-image',
   'export-json',
 ])
 </script>

@@ -9,6 +9,7 @@
         @export-guide="exportGuideJsonAll"
         @export-guide-visible="exportGuideJsonVisible"
         @import-json="handleImportJsonFile"
+        @import-image="handleImportGuideImage"
         @export-json="exportJson"
         :dirty="!!store.autosave?.isDirty"
       />
@@ -40,20 +41,7 @@
               @export-selection="exportGuideJsonSelection"
               @export-symbol="exportGuideJsonSymbol"
               @import-guide="handleImportGuideFile"
-            />
-            <GuideTemplatesPanel
-              :template-name="guideTemplateName"
-              :template-description="guideTemplateDescription"
-              :selected-id="selectedGuideTemplateId"
-              :templates="guideTemplates"
-              :selected-description="selectedGuideTemplateDescription"
-              :selected-meta="selectedGuideTemplateMeta"
-              @update="updateGuideTemplateState"
-              @save="saveGuideTemplate"
-              @import="handleImportGuideTemplateFile"
-              @export="exportGuideTemplate"
-              @apply="applyGuideTemplate"
-              @remove="removeGuideTemplate"
+              @import-image="handleImportGuideImage"
             />
             <GuideEditPanel
               :guide-radius-unit="guideRadiusUnit"
@@ -148,7 +136,10 @@
         <div class="center-body">
           <div v-show="centerTab === 'canvas'" class="center-pane">
             <div class="center-canvas">
-              <CanvasStage />
+              <CanvasStage
+                @toolbar-inflate="handleToolbarInflate"
+                @toolbar-rotate-cluster="handleToolbarRotateCluster"
+              />
             </div>
             <CanvasControls />
           </div>
@@ -246,6 +237,20 @@
               @preview-fill-color="previewGuideFillColor"
               @preview-fill="previewGuideFill"
               @toggle-unit="toggleGuidePropsUnit"
+            />
+            <GuideTemplatesPanel
+              :template-name="guideTemplateName"
+              :template-description="guideTemplateDescription"
+              :selected-id="selectedGuideTemplateId"
+              :templates="guideTemplates"
+              :selected-description="selectedGuideTemplateDescription"
+              :selected-meta="selectedGuideTemplateMeta"
+              @update="updateGuideTemplateState"
+              @save="saveGuideTemplate"
+              @import="handleImportGuideTemplateFile"
+              @export="exportGuideTemplate"
+              @apply="applyGuideTemplate"
+              @remove="removeGuideTemplate"
             />
             <GuideTopViewPanel
               v-if="guideTopViewAvailable"
@@ -833,6 +838,43 @@ function updateSelectedLayer(patch) {
     gapIn: selectedLayerMeta.gapIn,
     rotationDeg: selectedLayerMeta.rotationDeg,
   })
+}
+
+function handleToolbarInflate(payload) {
+  const group = selectedLayerGroup.value
+  if (!group) return
+  const delta = Number(payload?.delta)
+  if (!Number.isFinite(delta)) return
+  if (store.ui?.groupEditMode) {
+    const selectedNode = store.selectedNode
+    const sameGroup = selectedNode && String(selectedNode.groupId) === String(group.id)
+    const isBalloon = selectedNode?.kind === 'balloon'
+    const fallbackId = String(rowEditSelectedId.value || '')
+    const fallbackNode = fallbackId
+      ? selectedLayerNodes.value.find((n) => String(n?.id) === fallbackId)
+      : null
+    const node = sameGroup && isBalloon ? selectedNode : fallbackNode
+    if (!node) return
+    const currentSize = getNodeSizeIn(node)
+    const base = Number.isFinite(currentSize) ? currentSize : selectedLayerMeta.sizeIn
+    const next = clampNumber(base + delta, 1, 60)
+    const radiusPx = (next * 2.54 * PX_PER_CM) / 2
+    store.updateNodeMeta(node.id, { radiusX: radiusPx, radiusY: radiusPx })
+    return
+  }
+  const current = Number(selectedLayerMeta.sizeIn || 0)
+  const next = Number.isFinite(current) ? current + delta : delta
+  updateSelectedLayer({ sizeIn: clampNumber(next, 1, 60) })
+}
+
+function handleToolbarRotateCluster(payload) {
+  const group = selectedLayerGroup.value
+  if (!group) return
+  if (selectedLayerMeta.layout !== 'circle') return
+  const current = Number(selectedLayerMeta.rotationDeg || 0)
+  const step = payload?.shiftKey ? 15 : 5
+  const next = Number.isFinite(current) ? current + step : step
+  updateSelectedLayer({ rotationDeg: next })
 }
 
 function updateLayerBubbleFill({ id, color }) {
@@ -1528,6 +1570,15 @@ function clampNumber(value, min, max) {
   return Math.min(max, Math.max(min, n))
 }
 
+function getNodeSizeIn(node) {
+  const rx = Number(node?.meta?.radiusX)
+  const ry = Number(node?.meta?.radiusY)
+  const base = Math.max(rx, ry)
+  if (!Number.isFinite(base) || base <= 0) return null
+  const diameterCm = (base * 2) / PX_PER_CM
+  return Math.round((diameterCm / 2.54) * 100) / 100
+}
+
 function toCm(value, unit) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
@@ -1622,6 +1673,36 @@ function promptGuideFileName(baseName) {
   const base = raw ? stripGuideSuffix(raw) : fallback
   const normalized = String(base || '').trim() || fallback
   return `${normalized}.guide.json`
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(reader.error)
+    reader.readAsDataURL(file)
+  })
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    img.onload = () => resolve(img)
+    img.onerror = () => reject(new Error('load image failed'))
+    img.src = src
+  })
+}
+
+function getGuideCanvasCenter() {
+  const wall = store.ui?.guideWall
+  const widthCm = Number(wall?.widthCm || store.canvas?.widthCm || 0)
+  const heightCm = Number(wall?.heightCm || store.canvas?.heightCm || 0)
+  const widthPx = widthCm * PX_PER_CM
+  const heightPx = heightCm * PX_PER_CM
+  return {
+    x: Number.isFinite(widthPx) && widthPx > 0 ? widthPx / 2 : 160,
+    y: Number.isFinite(heightPx) && heightPx > 0 ? heightPx / 2 : 160,
+  }
 }
 
 function stripGuideSuffix(value) {
@@ -1883,6 +1964,26 @@ async function onImportGuideFile(e) {
     if (ok) window.alert('Guia importada correctamente.')
   } catch {
     window.alert('No se pudo importar la guia. Verifica que el JSON sea válido.')
+  }
+}
+
+async function handleImportGuideImage(e) {
+  const file = e?.target?.files?.[0] || null
+  if (e?.target) e.target.value = ''
+  if (!file) return
+
+  try {
+    const src = await readFileAsDataUrl(file)
+    const img = await loadImage(src)
+    const width = Number(img?.naturalWidth || img?.width || 0)
+    const height = Number(img?.naturalHeight || img?.height || 0)
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+      throw new Error('Invalid image size')
+    }
+    const { x, y } = getGuideCanvasCenter()
+    store.addImageNode?.({ x, y, src, width, height })
+  } catch {
+    window.alert('No se pudo importar la imagen. Verifica el archivo.')
   }
 }
 

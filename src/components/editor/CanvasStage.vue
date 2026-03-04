@@ -3155,8 +3155,10 @@ function onToolbarInflate(delta) {
   emit('toolbar-inflate', { delta })
 }
 
-function onToolbarRotateCluster() {
-  emit('toolbar-rotate-cluster', { groupId: store.selectedGroupId || null })
+function onToolbarRotateCluster(e) {
+  const evt = e?.evt || e
+  const shiftKey = !!evt?.shiftKey
+  emit('toolbar-rotate-cluster', { groupId: store.selectedGroupId || null, shiftKey })
 }
 
 function onToolbarDelete() {

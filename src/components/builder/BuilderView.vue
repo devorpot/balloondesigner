@@ -1648,14 +1648,12 @@ function handleToolbarInflate(payload) {
   inflateSelected(delta)
 }
 
-function handleToolbarRotateCluster() {
+function handleToolbarRotateCluster(payload) {
   if (!selectedLayerGroup.value) return
   if (selectedLayerMeta.layout !== 'circle') return
   const current = Number(selectedLayerMeta.rotationDeg || 0)
-  const input = window.prompt('Rotacion (grados):', String(current))
-  if (input === null) return
-  const next = Number(input)
-  if (!Number.isFinite(next)) return
+  const step = payload?.shiftKey ? 15 : 5
+  const next = Number.isFinite(current) ? current + step : step
   updateSelectedLayer({ rotationDeg: next })
 }
 

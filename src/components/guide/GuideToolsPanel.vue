@@ -86,15 +86,39 @@
           >
             <i class="bi bi-download me-1"></i>Exportar simbolo JSON
           </button>
-          <label class="btn btn-sm btn-outline-secondary mb-0">
-            <i class="bi bi-upload me-1"></i>Importar guia JSON
-            <input
-              type="file"
-              accept="application/json"
-              class="d-none"
-              @change="$emit('import-guide', $event)"
-            />
-          </label>
+          <div class="btn-group btn-group-sm" role="group">
+            <button
+              class="btn btn-outline-secondary dropdown-toggle"
+              type="button"
+              data-bs-toggle="dropdown"
+            >
+              <i class="bi bi-upload me-1"></i>Importar
+            </button>
+            <ul class="dropdown-menu">
+              <li>
+                <label class="dropdown-item file-item">
+                  Importar guia JSON
+                  <input
+                    type="file"
+                    accept="application/json"
+                    class="d-none"
+                    @change="$emit('import-guide', $event)"
+                  />
+                </label>
+              </li>
+              <li>
+                <label class="dropdown-item file-item">
+                  Importar imagen
+                  <input
+                    type="file"
+                    accept="image/*"
+                    class="d-none"
+                    @change="$emit('import-image', $event)"
+                  />
+                </label>
+              </li>
+            </ul>
+          </div>
           <div class="form-check form-switch">
             <input
               id="guide-export-visible"
@@ -156,6 +180,7 @@ const emit = defineEmits([
   'export-selection',
   'export-symbol',
   'import-guide',
+  'import-image',
 ])
 
 function updateField(key, value) {
