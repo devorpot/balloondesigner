@@ -29,6 +29,17 @@
           </div>
 
           <div class="section">
+            <div class="section-title">Resumen por tamaño</div>
+            <div v-if="!summary.sizeDetails?.length" class="text-muted xsmall">Sin datos</div>
+            <div v-else class="list">
+              <div v-for="item in summary.sizeDetails" :key="item.key" class="list-row">
+                <span class="fw-semibold">{{ formatSizeLabel(item) }}</span>
+                <span class="text-muted">x{{ item.count }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
             <div class="section-title">Detalle por color y tamano</div>
             <div v-if="!summary.details?.length" class="text-muted xsmall">Sin datos</div>
             <div v-else class="color-list">
@@ -38,9 +49,7 @@
                   :style="{ backgroundColor: item.color, opacity: item.alpha / 100 }"
                 ></span>
                 <div class="color-info">
-                  <div class="fw-semibold">
-                    {{ item.sizeIn ? `${item.sizeIn}\"` : 'N/A' }} · {{ item.color }}
-                  </div>
+                  <div class="fw-semibold">{{ formatSizeLabel(item) }} · {{ item.color }}</div>
                   <div class="text-muted xsmall">
                     Opacidad {{ item.alpha }}% · x{{ item.count }}
                   </div>
@@ -67,6 +76,16 @@ const props = defineProps({
 })
 
 const summary = computed(() => props.summary || { total: 0, sizes: [], colors: [] })
+
+function formatSizeLabel(item) {
+  const base = Number.isFinite(Number(item?.baseSizeIn)) ? Number(item.baseSizeIn) : null
+  const inflated = Number.isFinite(Number(item?.inflatedSizeIn))
+    ? Number(item.inflatedSizeIn)
+    : null
+  if (!Number.isFinite(base)) return 'N/A'
+  if (!Number.isFinite(inflated) || Math.abs(inflated - base) < 0.05) return `${base}\"`
+  return `${base}\" (inflado a ${inflated}\")`
+}
 </script>
 
 <style scoped>

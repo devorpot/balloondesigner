@@ -2875,7 +2875,11 @@ export const useGuideStore = defineStore('guide-editor', {
       downloadJson(data, fileName)
     },
 
-    buildGuideJsonPayload({ visibleOnly = false } = {}) {
+    buildGuideJsonPayload({
+      visibleOnly = false,
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
       const nodes = visibleOnly ? this.nodes.filter((n) => n.visible !== false) : this.nodes
       const nodeIds = new Set(nodes.map((n) => String(n.id)))
       const symbolIds = new Set(
@@ -2921,21 +2925,52 @@ export const useGuideStore = defineStore('guide-editor', {
             childIds: Array.isArray(g.childIds) ? g.childIds : [],
           }))
 
+      let adjustedNodes = nodes
+      let canvasPayload = {
+        widthCm: Number(this.canvas.widthCm || 0),
+        heightCm: Number(this.canvas.heightCm || 0),
+        offsetXcm: Number(this.canvas.offsetXcm || 0),
+        offsetYcm: Number(this.canvas.offsetYcm || 0),
+        lockRatio: !!this.canvas.lockRatio,
+        backgroundColor: this.canvas.backgroundColor || '#ffffff',
+        displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
+      }
+      let guideWallPayload = this.ui?.guideWall || null
+
+      if (cropToContent && nodes.length) {
+        const bounds = computeNodesBounds(nodes, symbols)
+        if (bounds) {
+          const dx = -bounds.left
+          const dy = -bounds.top
+          adjustedNodes = nodes.map((n) => {
+            const x = Number(n?.x)
+            const y = Number(n?.y)
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return n
+            return { ...n, x: x + dx, y: y + dy }
+          })
+          const widthCm = Math.max(1, Math.round((bounds.width / PX_PER_CM) * 10) / 10)
+          const heightCm = Math.max(1, Math.round((bounds.height / PX_PER_CM) * 10) / 10)
+          canvasPayload = {
+            ...canvasPayload,
+            widthCm,
+            heightCm,
+            offsetXcm: 0,
+            offsetYcm: 0,
+          }
+          if (guideWallPayload && typeof guideWallPayload === 'object') {
+            guideWallPayload = { ...guideWallPayload, widthCm, heightCm }
+          }
+        }
+      }
+
       return {
         version: 1,
         savedAt: Date.now(),
         type: 'guide-wall',
-        guideWall: this.ui?.guideWall || null,
-        canvas: {
-          widthCm: Number(this.canvas.widthCm || 0),
-          heightCm: Number(this.canvas.heightCm || 0),
-          offsetXcm: Number(this.canvas.offsetXcm || 0),
-          offsetYcm: Number(this.canvas.offsetYcm || 0),
-          lockRatio: !!this.canvas.lockRatio,
-          backgroundColor: this.canvas.backgroundColor || '#ffffff',
-          displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
-        },
-        nodes: nodes.map((n) => serializeGuideNode(n)),
+        lockClusters: !!lockClusters,
+        guideWall: guideWallPayload,
+        canvas: canvasPayload,
+        nodes: adjustedNodes.map((n) => serializeGuideNode(n)),
         symbols: symbols.map((s) => ({
           id: s.id,
           name: String(s.name || 'Simbolo'),
@@ -2945,8 +2980,119 @@ export const useGuideStore = defineStore('guide-editor', {
       }
     },
 
-    exportGuideJson({ fileName = 'guia.json', visibleOnly = false } = {}) {
-      const payload = this.buildGuideJsonPayload({ visibleOnly })
+    exportGuideJson({
+      fileName = 'guia.json',
+      visibleOnly = false,
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
+      const payload = this.buildGuideJsonPayload({ visibleOnly, lockClusters, cropToContent })
+      downloadJson(payload, fileName)
+    },
+
+    buildGuideJsonPayloadForNodes({
+      nodeIds = [],
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
+      const nodeIdSet = new Set((Array.isArray(nodeIds) ? nodeIds : []).map((id) => String(id)))
+      const nodes = this.nodes.filter((n) => nodeIdSet.has(String(n.id)))
+      const symbolIds = new Set(
+        nodes.filter((n) => n.kind === 'symbol' && n.symbolId).map((n) => String(n.symbolId)),
+      )
+
+      if (symbolIds.size) {
+        const byId = new Map((this.symbols || []).map((s) => [String(s.id), s]))
+        const queue = [...symbolIds]
+        while (queue.length) {
+          const currentId = queue.shift()
+          const symbol = byId.get(String(currentId))
+          if (!symbol) continue
+          for (const n of symbol.nodes || []) {
+            if (n?.kind === 'symbol' && n.symbolId) {
+              const nestedId = String(n.symbolId)
+              if (!symbolIds.has(nestedId)) {
+                symbolIds.add(nestedId)
+                queue.push(nestedId)
+              }
+            }
+          }
+        }
+      }
+
+      const symbols = (this.symbols || []).filter((s) => symbolIds.has(String(s.id)))
+      const groups = (this.groups || [])
+        .map((g) => ({
+          id: g.id,
+          name: g.name,
+          childIds: (Array.isArray(g.childIds) ? g.childIds : []).filter((id) =>
+            nodeIdSet.has(String(id)),
+          ),
+        }))
+        .filter((g) => g.childIds.length)
+
+      let adjustedNodes = nodes
+      let canvasPayload = {
+        widthCm: Number(this.canvas.widthCm || 0),
+        heightCm: Number(this.canvas.heightCm || 0),
+        offsetXcm: Number(this.canvas.offsetXcm || 0),
+        offsetYcm: Number(this.canvas.offsetYcm || 0),
+        lockRatio: !!this.canvas.lockRatio,
+        backgroundColor: this.canvas.backgroundColor || '#ffffff',
+        displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
+      }
+      let guideWallPayload = this.ui?.guideWall || null
+
+      if (cropToContent && nodes.length) {
+        const bounds = computeNodesBounds(nodes, symbols)
+        if (bounds) {
+          const dx = -bounds.left
+          const dy = -bounds.top
+          adjustedNodes = nodes.map((n) => {
+            const x = Number(n?.x)
+            const y = Number(n?.y)
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return n
+            return { ...n, x: x + dx, y: y + dy }
+          })
+          const widthCm = Math.max(1, Math.round((bounds.width / PX_PER_CM) * 10) / 10)
+          const heightCm = Math.max(1, Math.round((bounds.height / PX_PER_CM) * 10) / 10)
+          canvasPayload = {
+            ...canvasPayload,
+            widthCm,
+            heightCm,
+            offsetXcm: 0,
+            offsetYcm: 0,
+          }
+          if (guideWallPayload && typeof guideWallPayload === 'object') {
+            guideWallPayload = { ...guideWallPayload, widthCm, heightCm }
+          }
+        }
+      }
+
+      return {
+        version: 1,
+        savedAt: Date.now(),
+        type: 'guide-wall',
+        lockClusters: !!lockClusters,
+        guideWall: guideWallPayload,
+        canvas: canvasPayload,
+        nodes: adjustedNodes.map((n) => serializeGuideNode(n)),
+        symbols: symbols.map((s) => ({
+          id: s.id,
+          name: String(s.name || 'Simbolo'),
+          nodes: (s.nodes || []).map((n) => serializeGuideNode(n)),
+        })),
+        groups,
+      }
+    },
+
+    exportGuideJsonSelection({
+      fileName = 'guia-seleccion.json',
+      nodeIds = [],
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
+      const payload = this.buildGuideJsonPayloadForNodes({ nodeIds, lockClusters, cropToContent })
       downloadJson(payload, fileName)
     },
 
@@ -5204,6 +5350,23 @@ function symbolBoundingBox(symbol, symbols) {
     width: maxX - minX,
     height: maxY - minY,
   }
+}
+
+function computeNodesBounds(nodes, symbols) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes || []) {
+    const box = nodeBoundingBoxForSymbols(n, symbols)
+    if (!box) continue
+    minX = Math.min(minX, box.left)
+    minY = Math.min(minY, box.top)
+    maxX = Math.max(maxX, box.right)
+    maxY = Math.max(maxY, box.bottom)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return { left: minX, top: minY, width: maxX - minX, height: maxY - minY }
 }
 
 function nodeBoundingBoxForSymbols(node, symbols = []) {

@@ -34,9 +34,11 @@
               :color="guideTools.color"
               :alpha="guideTools.alpha"
               :export-visible-only="guideExportVisibleOnly"
+              :lock-clusters="guideExportLockClusters"
               @update="updateGuideTools"
               @export-guide="exportGuideJson"
               @export-selection="exportGuideJsonSelection"
+              @export-symbol="exportGuideJsonSymbol"
               @import-guide="handleImportGuideFile"
             />
             <GuideTemplatesPanel
@@ -315,6 +317,7 @@ const guideTools = reactive({
   lineStyle: 'dashed',
 })
 const guideExportVisibleOnly = ref(false)
+const guideExportLockClusters = ref(false)
 const guideTemplates = ref([])
 const guideTemplateName = ref('')
 const guideTemplateDescription = ref('')
@@ -701,6 +704,9 @@ function updateGuideTools(patch) {
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'exportVisibleOnly')) {
     guideExportVisibleOnly.value = !!patch.exportVisibleOnly
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, 'lockClusters')) {
+    guideExportLockClusters.value = !!patch.lockClusters
   }
   if (Object.prototype.hasOwnProperty.call(patch, 'lineWidth')) {
     guideTools.lineWidth = Number(patch.lineWidth)
@@ -1608,6 +1614,24 @@ function promptFileName(baseName, extension) {
   return lower.endsWith(`.${ext.toLowerCase()}`) ? raw : `${raw}.${ext}`
 }
 
+function promptGuideFileName(baseName) {
+  const fallback = String(baseName || '').trim() || 'archivo'
+  const input = window.prompt('Nombre del archivo (sin extension):', fallback)
+  if (input === null) return null
+  const raw = String(input || '').trim()
+  const base = raw ? stripGuideSuffix(raw) : fallback
+  const normalized = String(base || '').trim() || fallback
+  return `${normalized}.guide.json`
+}
+
+function stripGuideSuffix(value) {
+  const raw = String(value || '').trim()
+  const lower = raw.toLowerCase()
+  if (lower.endsWith('.guide.json')) return raw.slice(0, -'.guide.json'.length)
+  if (lower.endsWith('.json')) return raw.slice(0, -'.json'.length)
+  return raw
+}
+
 function ensureGuideLineNodes() {
   const nodes = store.nodes || []
   for (const node of nodes) {
@@ -1763,25 +1787,80 @@ function addGuideOval() {
 function exportGuideJson() {
   if (!guideMode.value) return
   const name = String(projects.activeProject?.name || '').trim() || 'guia'
-  const fileName = promptFileName(name, 'json')
+  const fileName = promptGuideFileName(name)
   if (!fileName) return
-  store.exportGuideJson({ fileName, visibleOnly: guideExportVisibleOnly.value })
+  store.exportGuideJson({
+    fileName,
+    visibleOnly: guideExportVisibleOnly.value,
+    lockClusters: guideExportLockClusters.value,
+    cropToContent: guideExportVisibleOnly.value,
+  })
 }
 
 function exportGuideJsonAll() {
   if (!guideMode.value) return
   const name = String(projects.activeProject?.name || '').trim() || 'guia'
-  const fileName = promptFileName(name, 'json')
+  const fileName = promptGuideFileName(name)
   if (!fileName) return
-  store.exportGuideJson({ fileName, visibleOnly: false })
+  store.exportGuideJson({
+    fileName,
+    visibleOnly: false,
+    lockClusters: guideExportLockClusters.value,
+    cropToContent: false,
+  })
 }
 
 function exportGuideJsonVisible() {
   if (!guideMode.value) return
   const name = String(projects.activeProject?.name || '').trim() || 'guia'
-  const fileName = promptFileName(name, 'json')
+  const fileName = promptGuideFileName(name)
   if (!fileName) return
-  store.exportGuideJson({ fileName, visibleOnly: true })
+  store.exportGuideJson({
+    fileName,
+    visibleOnly: true,
+    lockClusters: guideExportLockClusters.value,
+    cropToContent: true,
+  })
+}
+
+function exportGuideJsonSelection() {
+  if (!guideMode.value) return
+  const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+  if (!ids.length) {
+    window.alert('Selecciona al menos un objeto para exportar.')
+    return
+  }
+  const name = String(projects.activeProject?.name || '').trim() || 'guia'
+  const fileName = promptGuideFileName(`${name}-seleccion`)
+  if (!fileName) return
+  store.exportGuideJsonSelection?.({
+    fileName,
+    nodeIds: ids,
+    lockClusters: guideExportLockClusters.value,
+    cropToContent: false,
+  })
+}
+
+function exportGuideJsonSymbol() {
+  if (!guideMode.value) return
+  const rawNodes = Array.isArray(store.nodes) ? store.nodes : []
+  const objectNodes = rawNodes.filter((node) => !node?.meta?.guideLine && !node?.meta?.guide)
+  const nodes = guideExportVisibleOnly.value
+    ? objectNodes.filter((node) => node.visible !== false)
+    : objectNodes
+  if (!nodes.length) {
+    window.alert('No hay simbolos para exportar.')
+    return
+  }
+  const name = String(projects.activeProject?.name || '').trim() || 'guia'
+  const fileName = promptGuideFileName(`${name}-simbolo`)
+  if (!fileName) return
+  store.exportGuideJsonSelection?.({
+    fileName,
+    nodeIds: nodes.map((n) => n.id),
+    lockClusters: guideExportLockClusters.value,
+    cropToContent: guideExportVisibleOnly.value,
+  })
 }
 
 function exportJson() {

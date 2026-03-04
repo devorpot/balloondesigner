@@ -79,6 +79,13 @@
           >
             <i class="bi bi-download me-1"></i>Exportar seleccion JSON
           </button>
+          <button
+            class="btn btn-sm btn-outline-secondary"
+            type="button"
+            @click="$emit('export-symbol')"
+          >
+            <i class="bi bi-download me-1"></i>Exportar simbolo JSON
+          </button>
           <label class="btn btn-sm btn-outline-secondary mb-0">
             <i class="bi bi-upload me-1"></i>Importar guia JSON
             <input
@@ -97,6 +104,16 @@
               @change="updateField('exportVisibleOnly', $event.target.checked)"
             />
             <label class="form-check-label" for="guide-export-visible">Solo visibles</label>
+          </div>
+          <div class="form-check form-switch">
+            <input
+              id="guide-export-lock"
+              class="form-check-input"
+              type="checkbox"
+              :checked="lockClusters"
+              @change="updateField('lockClusters', $event.target.checked)"
+            />
+            <label class="form-check-label" for="guide-export-lock"> Bloquear clusters </label>
           </div>
         </div>
       </div>
@@ -130,9 +147,16 @@ defineProps({
   color: { type: String, default: '' },
   alpha: { type: Number, default: 100 },
   exportVisibleOnly: { type: Boolean, default: false },
+  lockClusters: { type: Boolean, default: false },
 })
 
-const emit = defineEmits(['update', 'export-guide', 'export-selection', 'import-guide'])
+const emit = defineEmits([
+  'update',
+  'export-guide',
+  'export-selection',
+  'export-symbol',
+  'import-guide',
+])
 
 function updateField(key, value) {
   emit('update', { [key]: value })

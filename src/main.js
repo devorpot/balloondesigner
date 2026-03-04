@@ -1,3 +1,5 @@
+
+
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import router from './router'
@@ -24,5 +26,6 @@ const catalog = useCatalogStore()
 catalog.init()
 app.use(router)
 app.use(VueKonva)
-
+app.config.devtools = false
+app.config.performance = false
 app.mount('#app')

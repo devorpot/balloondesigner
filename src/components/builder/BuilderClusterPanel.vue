@@ -33,6 +33,44 @@
               >Edicion de elementos</span
             >
           </div>
+          <div v-if="selectionMeasure" class="measure-chip mt-2">
+            Medidas: {{ selectionMeasure.widthCm }} cm ({{ selectionMeasure.widthIn }} in) ·
+            {{ selectionMeasure.heightCm }} cm ({{ selectionMeasure.heightIn }} in)
+          </div>
+          <div class="form-check form-switch mt-2">
+            <input
+              id="cluster-drag-lock"
+              class="form-check-input"
+              type="checkbox"
+              :checked="clusterDragLocked"
+              @change="$emit('toggle-cluster-lock', $event.target.checked)"
+            />
+            <label class="form-check-label" for="cluster-drag-lock">
+              Bloquear arrastre de {{ selectedClusterCount > 1 ? 'clusters' : 'cluster' }}
+            </label>
+          </div>
+          <div class="mt-2">
+            <label class="form-label small">Inflado</label>
+            <div class="d-flex align-items-center gap-2">
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                type="button"
+                :disabled="!canDeflate"
+                @click="$emit('inflate', -0.5)"
+              >
+                <i class="bi bi-dash-lg me-1"></i>Desinflar
+              </button>
+              <button
+                class="btn btn-sm btn-outline-secondary"
+                type="button"
+                :disabled="!canInflate"
+                @click="$emit('inflate', 0.5)"
+              >
+                <i class="bi bi-plus-lg me-1"></i>Inflar
+              </button>
+            </div>
+            <div class="text-muted xsmall mt-1">Paso de 0.5" (limites por tamano).</div>
+          </div>
           <div class="d-flex flex-wrap gap-2 mt-2">
             <button class="btn btn-sm btn-outline-secondary" type="button" @click="emitOpen">
               Editar cluster
@@ -58,61 +96,6 @@
                   {{ opt.label }}
                 </option>
               </select>
-            </div>
-            <div class="col-12">
-              <label class="form-label small">Color relleno</label>
-              <div class="d-flex align-items-center gap-2">
-                <input
-                  :value="selectedBubbleColor"
-                  class="form-control form-control-sm"
-                  type="text"
-                  @change="emitBubbleColor($event.target.value)"
-                />
-                <input
-                  :value="selectedBubbleColor"
-                  type="color"
-                  class="form-control form-control-color"
-                  aria-label="Color de relleno"
-                  @change="emitBubbleColor($event.target.value)"
-                />
-              </div>
-            </div>
-            <div class="col-12">
-              <label class="form-label small">Opacidad relleno (%)</label>
-              <div class="d-flex align-items-center gap-2">
-                <input
-                  class="form-range"
-                  type="range"
-                  min="0"
-                  max="100"
-                  step="1"
-                  :value="fillAlphaValue"
-                  @input="emitFillAlpha($event.target.value)"
-                />
-                <input
-                  class="form-control form-control-sm"
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="1"
-                  :value="fillAlphaValue"
-                  @input="emitFillAlpha($event.target.value)"
-                />
-              </div>
-            </div>
-            <div class="col-12" v-if="fillPalette.length">
-              <label class="form-label xsmall">Colores usados</label>
-              <div class="fill-palette">
-                <button
-                  v-for="color in fillPalette"
-                  :key="color"
-                  class="fill-swatch"
-                  type="button"
-                  :title="color"
-                  :style="{ backgroundColor: color }"
-                  @click="emitBubbleColor(color)"
-                ></button>
-              </div>
             </div>
           </div>
 
@@ -200,22 +183,24 @@ const props = defineProps({
   gapIn: { type: Number, default: 0 },
   rotationDeg: { type: Number, default: 0 },
   selectedBubbleId: { type: [String, Number], default: '' },
-  fillPalette: { type: Array, default: () => [] },
-  fillAlpha: { type: Number, default: 100 },
   isEditingElements: { type: Boolean, default: false },
   isEditingCluster: { type: Boolean, default: false },
   selectedClusterCount: { type: Number, default: 1 },
+  clusterDragLocked: { type: Boolean, default: false },
+  canInflate: { type: Boolean, default: false },
+  canDeflate: { type: Boolean, default: false },
+  selectionMeasure: { type: Object, default: null },
 })
 
 const emit = defineEmits([
   'update',
   'edit-elements',
-  'update-bubble-color',
-  'update-bubble-fill-alpha',
   'select-bubble',
   'open-edit-tab',
   'copy-config',
   'paste-config',
+  'toggle-cluster-lock',
+  'inflate',
 ])
 
 const sizeOptions = [5, 9, 12, 24, 36]
@@ -237,32 +222,9 @@ const bubbleOptions = computed(() =>
     label: `Globo ${index + 1}`,
   })),
 )
-const selectedBubbleColor = computed(() => {
-  const node = (props.nodes || []).find(
-    (item) => String(item?.id) === String(props.selectedBubbleId),
-  )
-  return String(node?.meta?.guideFillColor || '#ffffff')
-})
-const fillAlphaValue = computed(() => {
-  const next = Number(props.fillAlpha)
-  if (!Number.isFinite(next)) return 100
-  return Math.min(100, Math.max(0, Math.round(next)))
-})
 
 function emitUpdate(key, value) {
   emit('update', { [key]: Number(value) })
-}
-
-function emitBubbleColor(value) {
-  const color = String(value || '').trim()
-  if (!color || !props.selectedBubbleId) return
-  emit('update-bubble-color', { id: props.selectedBubbleId, color })
-}
-
-function emitFillAlpha(value) {
-  const next = Number(value)
-  if (!Number.isFinite(next)) return
-  emit('update-bubble-fill-alpha', { id: props.selectedBubbleId, alpha: next })
 }
 
 function emitOpen() {
@@ -322,5 +284,17 @@ watch(
 .mode-chip.active {
   background: #12a4b7;
   color: #fff;
+}
+
+.measure-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #0b0f14;
+  color: #fff;
+  font-size: 0.78rem;
+  font-weight: 600;
 }
 </style>

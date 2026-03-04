@@ -47,6 +47,15 @@ export function useBuilderStore() {
   if (!store.ui) store.ui = {}
   if (!store.ui.isGuideStore) store.ui.isGuideStore = true
   if (!store.ui.viewSide) store.ui.viewSide = 'front'
+  if (store.ui.showObjectMeasures === undefined) store.ui.showObjectMeasures = false
+  if (store.ui.bucketMode === undefined) store.ui.bucketMode = false
+  if (store.ui.bucketColor === undefined) store.ui.bucketColor = ''
+  if (store.ui.inflateMode === undefined) store.ui.inflateMode = null
+  if (store.autosave) {
+    store.autosave.enabled = true
+    store.autosave.debounceMs = 60000
+    store.autosave.storageKey = 'ballon_designer_builder_autosave_v1'
+  }
   if (!store.setViewSide) {
     store.setViewSide = (side) => {
       const next = side === 'back' ? 'back' : 'front'

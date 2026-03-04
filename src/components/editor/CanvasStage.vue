@@ -32,6 +32,15 @@
         </div>
         <div v-if="toolbarVisible" class="float-toolbar" :style="toolbarStyle">
           <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Editar elementos"
+            @click="onToolbarEditElements"
+          >
+            <i class="bi bi-grid-3x3-gap"></i>
+          </button>
+          <button
             class="btn btn-sm btn-light icon-btn"
             type="button"
             title="Duplicar"
@@ -63,6 +72,33 @@
             @click="onToolbarRotate(10)"
           >
             <i class="bi bi-arrow-clockwise"></i>
+          </button>
+          <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Desinflar"
+            @click="onToolbarInflate(-0.5)"
+          >
+            <i class="bi bi-dash-lg"></i>
+          </button>
+          <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Inflar"
+            @click="onToolbarInflate(0.5)"
+          >
+            <i class="bi bi-plus-lg"></i>
+          </button>
+          <button
+            v-if="canClusterConfig"
+            class="btn btn-sm btn-light icon-btn"
+            type="button"
+            title="Rotacion (grados)"
+            @click="onToolbarRotateCluster"
+          >
+            <i class="bi bi-compass"></i>
           </button>
           <button
             class="btn btn-sm btn-light icon-btn"
@@ -293,6 +329,10 @@
               <v-rect :config="selectionLabelBg" />
               <v-text :config="selectionLabel" />
             </v-group>
+            <v-group v-if="selectionMeasureLabel" :config="{ listening: false }">
+              <v-rect :config="selectionMeasureLabelBg" />
+              <v-text :config="selectionMeasureLabel" />
+            </v-group>
             <v-transformer ref="trRef" :config="transformerConfig" />
           </v-layer>
         </v-stage>
@@ -311,7 +351,12 @@ import ContextMenu from '@/components/editor/ContextMenu.vue'
 const store = useActiveEditorStore()
 const isGuideStore = computed(() => store?.$id === 'guide-editor' || !!store?.ui?.isGuideStore)
 const catalog = useCatalogStore()
-const emit = defineEmits(['guide-paint'])
+const emit = defineEmits([
+  'guide-paint',
+  'guide-inflate',
+  'toolbar-inflate',
+  'toolbar-rotate-cluster',
+])
 
 const symbolEdit = computed(() => store.ui?.symbolEdit || { active: false })
 const symbolEditActive = computed(() => !!symbolEdit.value?.active)
@@ -436,9 +481,9 @@ const selectionLabel = computed(() => {
   if (!text) return null
   const bounds = selectionBounds.value
   if (!bounds) return null
-  const fontSize = 9
-  const padding = 4
-  const textWidth = Math.max(30, Math.round(text.length * fontSize * 0.6))
+  const fontSize = 28
+  const padding = 18
+  const textWidth = Math.max(120, Math.round(text.length * fontSize * 0.6))
   const width = textWidth + padding * 2
   const height = fontSize + padding * 2
   const x = clamp(bounds.left, 6, Math.max(6, canvasWidth.value - width - 6))
@@ -457,6 +502,60 @@ const selectionLabel = computed(() => {
     verticalAlign: 'middle',
   }
 })
+const selectionMeasureText = computed(() => {
+  if (!store.ui?.showObjectMeasures) return ''
+  const bounds = selectionBounds.value
+  if (!bounds) return ''
+  const widthCm = Math.round((bounds.width / PX_PER_CM) * 10) / 10
+  const heightCm = Math.round((bounds.height / PX_PER_CM) * 10) / 10
+  const widthIn = Math.round((widthCm / 2.54) * 100) / 100
+  const heightIn = Math.round((heightCm / 2.54) * 100) / 100
+  return `W ${widthCm} cm (${widthIn} in) · H ${heightCm} cm (${heightIn} in)`
+})
+const selectionMeasureLabel = computed(() => {
+  const text = selectionMeasureText.value
+  if (!text) return null
+  const bounds = selectionBounds.value
+  if (!bounds) return null
+  const fontSize = 9
+  const padding = 4
+  const textWidth = Math.max(30, Math.round(text.length * fontSize * 0.6))
+  const width = textWidth + padding * 2
+  const height = fontSize + padding * 2
+  const x = clamp(bounds.left + bounds.width - width, 6, Math.max(6, canvasWidth.value - width - 6))
+  const y = clamp(bounds.top - height - 12, 6, Math.max(6, canvasHeight.value - height - 6))
+  return {
+    x,
+    y,
+    width,
+    height,
+    text,
+    fontSize,
+    fill: '#ffffff',
+    align: 'center',
+    verticalAlign: 'middle',
+  }
+})
+const selectionMeasureLabelBg = computed(() => {
+  const label = selectionMeasureLabel.value
+  if (!label) return null
+  return {
+    x: label.x,
+    y: label.y,
+    width: label.width,
+    height: label.height,
+    fill: '#0b0f14',
+    stroke: '#0b0f14',
+    strokeWidth: 2,
+    cornerRadius: 10,
+    shadowColor: 'rgba(0,0,0,0.45)',
+    shadowBlur: 10,
+    shadowOffsetX: 0,
+    shadowOffsetY: 4,
+    shadowOpacity: 0.6,
+    shadowEnabled: true,
+  }
+})
 const selectionLabelBg = computed(() => {
   const label = selectionLabel.value
   if (!label) return null
@@ -471,6 +570,12 @@ const selectionLabelBg = computed(() => {
     cornerRadius: 4,
     listening: false,
   }
+})
+const backgroundSelected = computed(() => {
+  const ids = Array.isArray(store.selectedIds) ? store.selectedIds : []
+  if (ids.length !== 1) return false
+  const node = store.selectedNode
+  return !!node?.meta?.background
 })
 const symbolToolbarId = computed(() => {
   if (!symbolEditActive.value) return null
@@ -938,6 +1043,8 @@ watch(panMode, (value) => {
 /* ================== NODE CONFIGS ================== */
 function groupConfig(n) {
   const depthOpacity = topViewOpacityFactor(n)
+  const backgroundMode = backgroundSelected.value
+  const isBackground = !!n?.meta?.background
   return {
     id: n.id,
     x: n.x,
@@ -947,8 +1054,15 @@ function groupConfig(n) {
     scaleY: n.scaleY,
     opacity: baseOpacity(n.opacity) * dimFactorForNode(n) * depthOpacity,
     draggable:
-      !n.locked && !n?.meta?.guideFixed && !panning.value && !panMode.value && !spaceDown.value, // evita drag de nodos mientras paneas
-    listening: !n?.meta?.guide || !!n?.meta?.guideLine,
+      !n.locked &&
+      !n?.meta?.dragLocked &&
+      !n?.meta?.guideFixed &&
+      !store.ui?.bucketMode &&
+      !store.ui?.inflateMode &&
+      !panning.value &&
+      !panMode.value &&
+      !spaceDown.value, // evita drag de nodos mientras paneas
+    listening: backgroundMode ? isBackground : !n?.meta?.guide || !!n?.meta?.guideLine,
   }
 }
 
@@ -1038,6 +1152,8 @@ function symbolInstanceConfig(n) {
       !symbolEditActive.value &&
       !n.locked &&
       !n?.meta?.guideFixed &&
+      !store.ui?.bucketMode &&
+      !store.ui?.inflateMode &&
       !panning.value &&
       !panMode.value &&
       !spaceDown.value,
@@ -1072,7 +1188,14 @@ function symbolChildGroupConfig(child, instanceId) {
     scaleY: child.scaleY,
     opacity: child.opacity,
     visible: child.visible !== false,
-    draggable: active && !child.locked && !panning.value && !panMode.value && !spaceDown.value,
+    draggable:
+      active &&
+      !child.locked &&
+      !store.ui?.bucketMode &&
+      !store.ui?.inflateMode &&
+      !panning.value &&
+      !panMode.value &&
+      !spaceDown.value,
     listening: !child?.meta?.guide,
   }
 }
@@ -1112,17 +1235,21 @@ function ellipseConfig(n, { listening = true } = {}) {
   const guideLine = !!n?.meta?.guideLine
   const guideAlpha = clampNumber(Number(n?.meta?.guideAlpha ?? 100), 0, 100)
   const guideFillAlpha = clampNumber(Number(n?.meta?.guideFillAlpha ?? 0), 0, 100)
-  const guideFillColor = String(n?.meta?.guideFillColor || '#ffffff')
+  const guideFillColor = String(n?.meta?.guideFillColor || '').trim()
+  const baseFill = guideFillColor || String(n?.color || '#ffffff')
   const baseStroke = String(n?.color || '#3c3c3c')
-  const strokeColor = guideLine ? withAlpha(baseStroke, guideAlpha / 100) : 'rgba(0,0,0,.10)'
+  const strokeColor = guideLine
+    ? withAlpha(baseFill || baseStroke, Math.max(0.35, guideAlpha / 100))
+    : 'rgba(0,0,0,.10)'
   const strokeWidth = guideLine ? Math.max(1, Number(n?.meta?.guideLineWidth || 2)) : 1
   const dash = guideLine && n?.meta?.guideLineDash ? [6, 4] : null
   const hitStrokeWidth = guideLine ? Math.max(8, strokeWidth + 6) : 0
   const depthShadow = topViewShadow(n)
   const shadowEnabled = !!depthShadow
-  const shadowFactor = guideLine ? 0.25 : 1
-  const fillAlpha = guideLine ? guideFillAlpha / 100 : 1
-  const fillColor = guideLine ? withAlpha(guideFillColor, fillAlpha) : n.color
+  const shadowFactor = guideLine ? 0.45 : 1
+  const minGuideFill = 0.12
+  const fillAlpha = guideLine ? Math.max(guideFillAlpha / 100, minGuideFill) : 1
+  const fillColor = guideLine ? withAlpha(baseFill, fillAlpha) : n.color
 
   return {
     x: 0,
@@ -1200,7 +1327,7 @@ function textConfig(n, { listening = false } = {}) {
 
 const imageCache = new Map()
 
-function imageConfig(n, { listening = false } = {}) {
+function imageConfig(n, { listening = true } = {}) {
   const meta = n?.meta || {}
   const src = String(meta.src || '')
   if (src && !imageCache.has(src)) {
@@ -1319,7 +1446,7 @@ function shineConfig(n) {
     y: -18,
     radiusX: 10,
     radiusY: 18,
-    fill: guideLine ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.35)',
+    fill: guideLine ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.35)',
     globalCompositeOperation: guideLine ? 'screen' : 'source-over',
     listening: false,
     visible: true,
@@ -1333,7 +1460,7 @@ function innerShadeConfig(n) {
   const maxR = Math.max(rx, ry)
   const guideLine = !!n?.meta?.guideLine
   const colorStops = guideLine
-    ? [0, 'rgba(0,0,0,0)', 0.7, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.12)']
+    ? [0, 'rgba(0,0,0,0)', 0.7, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.18)']
     : [0, 'rgba(0,0,0,0)', 0.6, 'rgba(0,0,0,0)', 1, 'rgba(0,0,0,0.22)']
 
   return {
@@ -1718,13 +1845,25 @@ const renderNodes = computed(() => {
     if (rectIntersects(rect, box)) filtered.push(n)
   }
 
-  if (filtered.length <= maxRenderNodes.value) return reorderCircleDepth(filtered)
+  if (filtered.length <= maxRenderNodes.value)
+    return reorderCircleDepth(prioritizeBackground(filtered))
 
   const selectedList = filtered.filter((n) => selected.has(n.id))
   const rest = filtered.filter((n) => !selected.has(n.id))
   const limit = Math.max(0, maxRenderNodes.value - selectedList.length)
-  return reorderCircleDepth([...selectedList, ...rest.slice(0, limit)])
+  return reorderCircleDepth(prioritizeBackground([...selectedList, ...rest.slice(0, limit)]))
 })
+
+function prioritizeBackground(list) {
+  if (!Array.isArray(list) || list.length < 2) return list
+  const background = []
+  const rest = []
+  for (const node of list) {
+    if (node?.meta?.background) background.push(node)
+    else rest.push(node)
+  }
+  return background.length ? [...background, ...rest] : list
+}
 
 function reorderCircleDepth(list) {
   if (!Array.isArray(list) || list.length < 2) return list
@@ -1959,7 +2098,23 @@ function onNodePointerDown(node, e) {
 
   // locked = intocable desde el canvas
   if (node?.locked) return
+  if (node?.meta?.dragLocked) return
   if (node?.meta?.guide) return
+
+  const modifiers = getEventModifiers(e)
+
+  if (store.ui?.inflateMode) {
+    const delta = store.ui.inflateMode === 'deflate' ? -0.5 : 0.5
+    emit('guide-inflate', { node, delta, modifiers })
+    closeMenu()
+    return
+  }
+
+  if (store.ui?.bucketMode) {
+    emit('guide-paint', { node, modifiers })
+    closeMenu()
+    return
+  }
 
   if (groupEditMode.value && store.selectedGroupId) {
     if (!node.groupId || String(node.groupId) !== String(store.selectedGroupId)) return
@@ -1977,13 +2132,13 @@ function onNodePointerDown(node, e) {
   if (mod || append) {
     store.toggleSelect(node.id)
     closeMenu()
-    emit('guide-paint', node)
+    emit('guide-paint', { node, modifiers })
     return
   }
 
   if (!groupEditMode.value && selectedIds.length > 1 && selectedIds.includes(node.id)) {
     closeMenu()
-    emit('guide-paint', node)
+    emit('guide-paint', { node, modifiers })
     return
   }
 
@@ -1995,7 +2150,17 @@ function onNodePointerDown(node, e) {
 
   store.select(node.id, { append: false })
   closeMenu()
-  emit('guide-paint', node)
+  emit('guide-paint', { node, modifiers })
+}
+
+function getEventModifiers(e) {
+  const evt = e?.evt || e
+  return {
+    shiftKey: !!evt?.shiftKey,
+    ctrlKey: !!evt?.ctrlKey,
+    metaKey: !!evt?.metaKey,
+    altKey: !!evt?.altKey,
+  }
 }
 
 function onSymbolNodePointerDown(instance, node, e) {
@@ -2011,10 +2176,23 @@ function onSymbolNodePointerDown(instance, node, e) {
   if (e?.cancelBubble !== undefined) e.cancelBubble = true
   if (e?.evt?.cancelBubble !== undefined) e.evt.cancelBubble = true
 
-  const evt = e?.evt
+  const modifiers = getEventModifiers(e)
   const isMac = navigator.platform.toLowerCase().includes('mac')
-  const mod = isMac ? !!evt?.metaKey : !!evt?.ctrlKey
-  const append = !!evt?.shiftKey
+  const mod = isMac ? !!modifiers?.metaKey : !!modifiers?.ctrlKey
+  const append = !!modifiers?.shiftKey
+
+  if (store.ui?.inflateMode) {
+    const delta = store.ui.inflateMode === 'deflate' ? -0.5 : 0.5
+    emit('guide-inflate', { node, delta, modifiers })
+    closeMenu()
+    return
+  }
+
+  if (store.ui?.bucketMode) {
+    emit('guide-paint', { node, modifiers })
+    closeMenu()
+    return
+  }
   const selectedIds = Array.isArray(store.ui?.symbolEdit?.selectedIds)
     ? store.ui.symbolEdit.selectedIds
     : []
@@ -2116,13 +2294,15 @@ function onDragStart(node, e) {
   const stage = getStage()
   if (!stage) return
 
-  let selected = store.selectedNodes.filter((n) => !n.locked)
+  let selected = store.selectedNodes.filter((n) => !n.locked && !n?.meta?.dragLocked)
 
   if (store.selectedGroupId && !groupEditMode.value) {
     const group = (store.groups || []).find((g) => String(g.id) === String(store.selectedGroupId))
     if (group && Array.isArray(group.childIds)) {
       const nodeById = new Map(store.nodes.map((n) => [String(n.id), n]))
-      selected = group.childIds.map((id) => nodeById.get(String(id))).filter((n) => n && !n.locked)
+      selected = group.childIds
+        .map((id) => nodeById.get(String(id)))
+        .filter((n) => n && !n.locked && !n?.meta?.dragLocked)
     }
   }
 
@@ -2158,6 +2338,7 @@ function onDragStart(node, e) {
     }
   }
 
+  setCursor('grabbing')
   clearGuides()
   store.beginHistoryBatch()
 }
@@ -2244,6 +2425,7 @@ function onDragEnd(node, e) {
       store.updateNode(node.id, { x: next.x, y: next.y })
     }
     clearGuides()
+    setCursor(panMode.value || spaceDown.value ? 'grab' : 'default')
     return
   }
 
@@ -2267,6 +2449,7 @@ function onDragEnd(node, e) {
     dragSession = null
     clearGuides()
     store.endHistoryBatch()
+    setCursor(panMode.value || spaceDown.value ? 'grab' : 'default')
   }
 }
 
@@ -2301,6 +2484,7 @@ function onSymbolDragStart(instance, node, e) {
     }
   }
 
+  setCursor('grabbing')
   store.beginHistoryBatch()
 }
 
@@ -2351,6 +2535,7 @@ function onSymbolDragEnd(instance, e) {
   if (!symbolDragSession || !stage || !symbolEditActive.value) {
     symbolDragSession = null
     store.endHistoryBatch()
+    setCursor(panMode.value || spaceDown.value ? 'grab' : 'default')
     return
   }
 
@@ -2369,6 +2554,7 @@ function onSymbolDragEnd(instance, e) {
   } finally {
     symbolDragSession = null
     store.endHistoryBatch()
+    setCursor(panMode.value || spaceDown.value ? 'grab' : 'default')
   }
 }
 
@@ -2957,6 +3143,20 @@ function onToolbarDuplicate() {
   }
   if (!store.selectedId) return
   store.duplicateSelected({ offset: 18 })
+}
+
+function onToolbarEditElements() {
+  if (!canClusterConfig.value) return
+  store.setGroupEditMode?.({ enabled: true, groupId: store.selectedGroupId })
+}
+
+function onToolbarInflate(delta) {
+  if (!Number.isFinite(delta)) return
+  emit('toolbar-inflate', { delta })
+}
+
+function onToolbarRotateCluster() {
+  emit('toolbar-rotate-cluster', { groupId: store.selectedGroupId || null })
 }
 
 function onToolbarDelete() {

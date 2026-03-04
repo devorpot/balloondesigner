@@ -15,6 +15,44 @@
 
       <ul class="dropdown-menu">
         <li>
+          <button class="dropdown-item" type="button" @click="emit('new-file')">
+            Nuevo archivo
+          </button>
+        </li>
+        <li>
+          <label class="dropdown-item file-item">
+            Abrir archivo
+            <input
+              type="file"
+              accept="application/json"
+              class="d-none"
+              @change="(e) => emit('open-file', e)"
+            />
+          </label>
+        </li>
+        <li><hr class="dropdown-divider" /></li>
+        <li>
+          <button class="dropdown-item" type="button" @click="emit('save-json')">
+            Guardar JSON
+          </button>
+        </li>
+        <li>
+          <button class="dropdown-item" type="button" @click="emit('save-as')">
+            Guardar como...
+          </button>
+        </li>
+        <li>
+          <button class="dropdown-item" type="button" @click="emit('export-image')">
+            Exportar imagen (visible)
+          </button>
+        </li>
+        <li>
+          <button class="dropdown-item" type="button" @click="emit('export-image-content')">
+            Exportar imagen (contenido)
+          </button>
+        </li>
+        <li><hr class="dropdown-divider" /></li>
+        <li>
           <label class="dropdown-item file-item">
             Importar guia JSON
             <input
@@ -25,11 +63,32 @@
             />
           </label>
         </li>
+        <li>
+          <label class="dropdown-item file-item">
+            Importar simbolo JSON
+            <input
+              type="file"
+              accept="application/json"
+              class="d-none"
+              @change="(e) => emit('import-symbol', e)"
+            />
+          </label>
+        </li>
       </ul>
     </div>
   </div>
 </template>
 
 <script setup>
-const emit = defineEmits(['go-home', 'import-guide'])
+const emit = defineEmits([
+  'go-home',
+  'save-json',
+  'save-as',
+  'open-file',
+  'export-image',
+  'export-image-content',
+  'import-guide',
+  'import-symbol',
+  'new-file',
+])
 </script>

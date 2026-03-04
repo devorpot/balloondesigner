@@ -76,6 +76,10 @@ function serializeGuideNode(node) {
 
 const STORAGE_KEY = 'ballon_designer_autosave_v1'
 
+function getAutosaveKey(store) {
+  return store?.autosave?.storageKey || STORAGE_KEY
+}
+
 export const useEditorStore = defineStore('editor', {
   state: () => ({
     nodes: [],
@@ -294,7 +298,7 @@ export const useEditorStore = defineStore('editor', {
 
     canRestore() {
       try {
-        return !!localStorage.getItem(STORAGE_KEY)
+        return !!localStorage.getItem(getAutosaveKey(this))
       } catch {
         return false
       }
@@ -2366,7 +2370,7 @@ export const useEditorStore = defineStore('editor', {
       const payload = store.serializeDesign()
 
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(payload))
+        localStorage.setItem(getAutosaveKey(store), JSON.stringify(payload))
         store.autosave.isDirty = false
         store.autosave.lastSavedAt = Date.now()
       } catch (err) {
@@ -2458,6 +2462,8 @@ export const useEditorStore = defineStore('editor', {
               : [],
           },
         },
+        guideWall:
+          this.ui?.guideWall && typeof this.ui.guideWall === 'object' ? this.ui.guideWall : null,
         canvas: {
           widthCm: Number(this.canvas.widthCm || 0),
           heightCm: Number(this.canvas.heightCm || 0),
@@ -2473,7 +2479,7 @@ export const useEditorStore = defineStore('editor', {
     restoreFromStorage({ silent = false } = {}) {
       let raw = null
       try {
-        raw = localStorage.getItem(STORAGE_KEY)
+        raw = localStorage.getItem(getAutosaveKey(this))
       } catch {
         raw = null
       }
@@ -2602,6 +2608,10 @@ export const useEditorStore = defineStore('editor', {
         if (Array.isArray(sg.anchors)) this.ui.stackGrid.anchors = sg.anchors
         if (Array.isArray(sg.presets)) this.ui.stackGrid.presets = sg.presets
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
+      }
+
+      if (data.guideWall && typeof data.guideWall === 'object') {
+        this.ui.guideWall = data.guideWall
       }
 
       this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
@@ -2755,7 +2765,7 @@ export const useEditorStore = defineStore('editor', {
 
     clearSavedDesign() {
       try {
-        localStorage.removeItem(STORAGE_KEY)
+        localStorage.removeItem(getAutosaveKey(this))
       } catch {
         // ignore
       }
@@ -2800,7 +2810,11 @@ export const useEditorStore = defineStore('editor', {
       downloadJson(data, fileName)
     },
 
-    buildGuideJsonPayload({ visibleOnly = false } = {}) {
+    buildGuideJsonPayload({
+      visibleOnly = false,
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
       const nodes = visibleOnly ? this.nodes.filter((n) => n.visible !== false) : this.nodes
       const nodeIds = new Set(nodes.map((n) => String(n.id)))
       const symbolIds = new Set(
@@ -2846,21 +2860,52 @@ export const useEditorStore = defineStore('editor', {
             childIds: Array.isArray(g.childIds) ? g.childIds : [],
           }))
 
+      let adjustedNodes = nodes
+      let canvasPayload = {
+        widthCm: Number(this.canvas.widthCm || 0),
+        heightCm: Number(this.canvas.heightCm || 0),
+        offsetXcm: Number(this.canvas.offsetXcm || 0),
+        offsetYcm: Number(this.canvas.offsetYcm || 0),
+        lockRatio: !!this.canvas.lockRatio,
+        backgroundColor: this.canvas.backgroundColor || '#ffffff',
+        displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
+      }
+      let guideWallPayload = this.ui?.guideWall || null
+
+      if (cropToContent && nodes.length) {
+        const bounds = computeNodesBounds(nodes, symbols)
+        if (bounds) {
+          const dx = -bounds.left
+          const dy = -bounds.top
+          adjustedNodes = nodes.map((n) => {
+            const x = Number(n?.x)
+            const y = Number(n?.y)
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return n
+            return { ...n, x: x + dx, y: y + dy }
+          })
+          const widthCm = Math.max(1, Math.round((bounds.width / PX_PER_CM) * 10) / 10)
+          const heightCm = Math.max(1, Math.round((bounds.height / PX_PER_CM) * 10) / 10)
+          canvasPayload = {
+            ...canvasPayload,
+            widthCm,
+            heightCm,
+            offsetXcm: 0,
+            offsetYcm: 0,
+          }
+          if (guideWallPayload && typeof guideWallPayload === 'object') {
+            guideWallPayload = { ...guideWallPayload, widthCm, heightCm }
+          }
+        }
+      }
+
       return {
         version: 1,
         savedAt: Date.now(),
         type: 'guide-wall',
-        guideWall: this.ui?.guideWall || null,
-        canvas: {
-          widthCm: Number(this.canvas.widthCm || 0),
-          heightCm: Number(this.canvas.heightCm || 0),
-          offsetXcm: Number(this.canvas.offsetXcm || 0),
-          offsetYcm: Number(this.canvas.offsetYcm || 0),
-          lockRatio: !!this.canvas.lockRatio,
-          backgroundColor: this.canvas.backgroundColor || '#ffffff',
-          displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
-        },
-        nodes: nodes.map((n) => serializeGuideNode(n)),
+        lockClusters: !!lockClusters,
+        guideWall: guideWallPayload,
+        canvas: canvasPayload,
+        nodes: adjustedNodes.map((n) => serializeGuideNode(n)),
         symbols: symbols.map((s) => ({
           id: s.id,
           name: String(s.name || 'Simbolo'),
@@ -2870,12 +2915,21 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    exportGuideJson({ fileName = 'guia.json', visibleOnly = false } = {}) {
-      const payload = this.buildGuideJsonPayload({ visibleOnly })
+    exportGuideJson({
+      fileName = 'guia.json',
+      visibleOnly = false,
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
+      const payload = this.buildGuideJsonPayload({ visibleOnly, lockClusters, cropToContent })
       downloadJson(payload, fileName)
     },
 
-    buildGuideJsonPayloadForNodes({ nodeIds = [] } = {}) {
+    buildGuideJsonPayloadForNodes({
+      nodeIds = [],
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
       const nodeIdSet = new Set((Array.isArray(nodeIds) ? nodeIds : []).map((id) => String(id)))
       const nodes = this.nodes.filter((n) => nodeIdSet.has(String(n.id)))
       const symbolIds = new Set(
@@ -2912,21 +2966,52 @@ export const useEditorStore = defineStore('editor', {
         }))
         .filter((g) => g.childIds.length)
 
+      let adjustedNodes = nodes
+      let canvasPayload = {
+        widthCm: Number(this.canvas.widthCm || 0),
+        heightCm: Number(this.canvas.heightCm || 0),
+        offsetXcm: Number(this.canvas.offsetXcm || 0),
+        offsetYcm: Number(this.canvas.offsetYcm || 0),
+        lockRatio: !!this.canvas.lockRatio,
+        backgroundColor: this.canvas.backgroundColor || '#ffffff',
+        displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
+      }
+      let guideWallPayload = this.ui?.guideWall || null
+
+      if (cropToContent && nodes.length) {
+        const bounds = computeNodesBounds(nodes, symbols)
+        if (bounds) {
+          const dx = -bounds.left
+          const dy = -bounds.top
+          adjustedNodes = nodes.map((n) => {
+            const x = Number(n?.x)
+            const y = Number(n?.y)
+            if (!Number.isFinite(x) || !Number.isFinite(y)) return n
+            return { ...n, x: x + dx, y: y + dy }
+          })
+          const widthCm = Math.max(1, Math.round((bounds.width / PX_PER_CM) * 10) / 10)
+          const heightCm = Math.max(1, Math.round((bounds.height / PX_PER_CM) * 10) / 10)
+          canvasPayload = {
+            ...canvasPayload,
+            widthCm,
+            heightCm,
+            offsetXcm: 0,
+            offsetYcm: 0,
+          }
+          if (guideWallPayload && typeof guideWallPayload === 'object') {
+            guideWallPayload = { ...guideWallPayload, widthCm, heightCm }
+          }
+        }
+      }
+
       return {
         version: 1,
         savedAt: Date.now(),
         type: 'guide-wall',
-        guideWall: this.ui?.guideWall || null,
-        canvas: {
-          widthCm: Number(this.canvas.widthCm || 0),
-          heightCm: Number(this.canvas.heightCm || 0),
-          offsetXcm: Number(this.canvas.offsetXcm || 0),
-          offsetYcm: Number(this.canvas.offsetYcm || 0),
-          lockRatio: !!this.canvas.lockRatio,
-          backgroundColor: this.canvas.backgroundColor || '#ffffff',
-          displayScale: Number(this.canvas.displayScale || DEFAULT_DISPLAY_SCALE),
-        },
-        nodes: nodes.map((n) => serializeGuideNode(n)),
+        lockClusters: !!lockClusters,
+        guideWall: guideWallPayload,
+        canvas: canvasPayload,
+        nodes: adjustedNodes.map((n) => serializeGuideNode(n)),
         symbols: symbols.map((s) => ({
           id: s.id,
           name: String(s.name || 'Simbolo'),
@@ -2936,8 +3021,13 @@ export const useEditorStore = defineStore('editor', {
       }
     },
 
-    exportGuideJsonSelection({ fileName = 'guia-seleccion.json', nodeIds = [] } = {}) {
-      const payload = this.buildGuideJsonPayloadForNodes({ nodeIds })
+    exportGuideJsonSelection({
+      fileName = 'guia-seleccion.json',
+      nodeIds = [],
+      lockClusters = false,
+      cropToContent = false,
+    } = {}) {
+      const payload = this.buildGuideJsonPayloadForNodes({ nodeIds, lockClusters, cropToContent })
       downloadJson(payload, fileName)
     },
 
@@ -3059,6 +3149,10 @@ export const useEditorStore = defineStore('editor', {
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
+      if (data.guideWall && typeof data.guideWall === 'object') {
+        this.ui.guideWall = data.guideWall
+      }
+
       this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
 
       this.clearSelection()
@@ -3067,7 +3161,7 @@ export const useEditorStore = defineStore('editor', {
       this.autosave.isRestoring = false
 
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.serializeDesign()))
+        localStorage.setItem(getAutosaveKey(this), JSON.stringify(this.serializeDesign()))
         this.autosave.lastSavedAt = Date.now()
       } catch {
         // ignore
@@ -3196,13 +3290,271 @@ export const useEditorStore = defineStore('editor', {
       this.autosave.isRestoring = false
 
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(this.serializeDesign()))
+        localStorage.setItem(getAutosaveKey(this), JSON.stringify(this.serializeDesign()))
         this.autosave.lastSavedAt = Date.now()
       } catch {
         // ignore
       }
 
       this.initHistory()
+      return true
+    },
+
+    importGuideObjectsObject(data, { selectImported = true } = {}) {
+      if (!data || !Array.isArray(data.nodes)) {
+        window.alert('Archivo inválido: no contiene nodos.')
+        return false
+      }
+
+      const rawNodes = Array.isArray(data.nodes) ? data.nodes : []
+      if (!rawNodes.length) {
+        window.alert('No hay objetos para importar.')
+        return false
+      }
+
+      const rawSymbols = Array.isArray(data.symbols) ? data.symbols : []
+      const rawGroups = Array.isArray(data.groups) ? data.groups : []
+
+      const usedNodeIds = new Set(this.nodes.map((n) => String(n.id)))
+      const usedGroupIds = new Set((this.groups || []).map((g) => String(g.id)))
+      const usedSymbolIds = new Set((this.symbols || []).map((s) => String(s.id)))
+
+      const createUnique = (factory, used) => {
+        let next = String(factory())
+        while (used.has(next)) next = String(factory())
+        used.add(next)
+        return next
+      }
+
+      const symbolIdMap = new Map()
+      for (const symbol of rawSymbols) {
+        const oldId = String(symbol?.id || '')
+        const nextId = createUnique(symbolUid, usedSymbolIds)
+        symbolIdMap.set(oldId, nextId)
+      }
+
+      const groupIdMap = new Map()
+      for (const group of rawGroups) {
+        const oldId = String(group?.id || '')
+        const nextId = createUnique(uid, usedGroupIds)
+        groupIdMap.set(oldId, nextId)
+      }
+
+      const nodeIdMap = new Map()
+      const baseIndex = this.nodes.length
+
+      const normalizeNode = (node, id, { forceGroup = false } = {}) => {
+        const kind =
+          node.kind === 'text'
+            ? 'text'
+            : node.kind === 'image'
+              ? 'image'
+              : node.kind === 'symbol'
+                ? 'symbol'
+                : 'balloon'
+        const symbolId = node.symbolId
+          ? symbolIdMap.get(String(node.symbolId)) || String(node.symbolId)
+          : null
+        const groupId = forceGroup
+          ? null
+          : node.groupId
+            ? groupIdMap.get(String(node.groupId)) || null
+            : null
+
+        return {
+          id,
+          kind,
+          symbolId,
+          name: typeof node.name === 'string' ? node.name : '',
+          x: Number.isFinite(Number(node.x)) ? Number(node.x) : 0,
+          y: Number.isFinite(Number(node.y)) ? Number(node.y) : 0,
+          rotation: Number.isFinite(Number(node.rotation)) ? Number(node.rotation) : 0,
+          scaleX: Number.isFinite(Number(node.scaleX)) ? Number(node.scaleX) : 1,
+          scaleY: Number.isFinite(Number(node.scaleY)) ? Number(node.scaleY) : 1,
+          opacity: Number.isFinite(Number(node.opacity)) ? Number(node.opacity) : 1,
+          color: typeof node.color === 'string' ? node.color : '#ff3b30',
+          locked: !!node.locked,
+          visible: node.visible !== false,
+          zIndex: Number.isFinite(Number(node.zIndex)) ? Number(node.zIndex) : 0,
+          typeId: String(node.typeId || 'round-11'),
+          groupId,
+          meta: typeof node.meta === 'object' && node.meta ? { ...node.meta } : {},
+        }
+      }
+
+      const newNodes = rawNodes.map((node, index) => {
+        const oldId = String(node?.id || '')
+        const nextId = createUnique(uid, usedNodeIds)
+        if (oldId) nodeIdMap.set(oldId, nextId)
+        const normalized = normalizeNode(node, nextId)
+        normalized.zIndex = baseIndex + index
+        return normalized
+      })
+
+      const newSymbols = rawSymbols.map((symbol) => {
+        const oldId = String(symbol?.id || '')
+        const nextId = symbolIdMap.get(oldId) || createUnique(symbolUid, usedSymbolIds)
+        const nodes = (Array.isArray(symbol?.nodes) ? symbol.nodes : []).map((node) => {
+          const nextNodeId = createUnique(uid, usedNodeIds)
+          return normalizeNode(node, nextNodeId, { forceGroup: true })
+        })
+        return {
+          id: nextId,
+          name: typeof symbol?.name === 'string' ? symbol.name : 'Simbolo',
+          nodes,
+        }
+      })
+
+      const newGroups = rawGroups
+        .map((group) => {
+          const oldId = String(group?.id || '')
+          const nextId = groupIdMap.get(oldId) || createUnique(uid, usedGroupIds)
+          const childIds = (Array.isArray(group?.childIds) ? group.childIds : [])
+            .map((id) => nodeIdMap.get(String(id)))
+            .filter(Boolean)
+          return {
+            id: nextId,
+            name: typeof group?.name === 'string' ? group.name : 'Grupo',
+            childIds,
+          }
+        })
+        .filter((group) => group.childIds.length)
+
+      this.beginHistoryBatch()
+      try {
+        if (newSymbols.length) this.symbols = [...(this.symbols || []), ...newSymbols]
+        this.nodes = [...this.nodes, ...newNodes]
+        if (newGroups.length) this.groups = [...(this.groups || []), ...newGroups]
+        applyGroupMembership(this)
+        this.reindexZ()
+        if (selectImported) this.setSelection(newNodes.map((n) => n.id))
+        this.markDirty('Importar objetos')
+      } finally {
+        this.endHistoryBatch()
+      }
+
+      return true
+    },
+
+    importGuideSymbolObject(data, { name = '', selectImported = true } = {}) {
+      if (!data || !Array.isArray(data.nodes)) {
+        window.alert('Archivo inválido: no contiene nodos.')
+        return false
+      }
+
+      const rawNodes = Array.isArray(data.nodes) ? data.nodes : []
+      if (!rawNodes.length) {
+        window.alert('No hay simbolos para importar.')
+        return false
+      }
+
+      const rawSymbols = Array.isArray(data.symbols) ? data.symbols : []
+
+      const usedNodeIds = new Set(this.nodes.map((n) => String(n.id)))
+      const usedSymbolIds = new Set((this.symbols || []).map((s) => String(s.id)))
+
+      const createUnique = (factory, used) => {
+        let next = String(factory())
+        while (used.has(next)) next = String(factory())
+        used.add(next)
+        return next
+      }
+
+      const symbolIdMap = new Map()
+      for (const symbol of rawSymbols) {
+        const oldId = String(symbol?.id || '')
+        const nextId = createUnique(symbolUid, usedSymbolIds)
+        symbolIdMap.set(oldId, nextId)
+      }
+
+      const normalizeSymbolNode = (node, id) => {
+        const kind =
+          node.kind === 'text'
+            ? 'text'
+            : node.kind === 'image'
+              ? 'image'
+              : node.kind === 'symbol'
+                ? 'symbol'
+                : 'balloon'
+        const symbolId = node.symbolId
+          ? symbolIdMap.get(String(node.symbolId)) || String(node.symbolId)
+          : null
+        return {
+          id,
+          kind,
+          symbolId,
+          name: typeof node.name === 'string' ? node.name : '',
+          x: Number.isFinite(Number(node.x)) ? Number(node.x) : 0,
+          y: Number.isFinite(Number(node.y)) ? Number(node.y) : 0,
+          rotation: Number.isFinite(Number(node.rotation)) ? Number(node.rotation) : 0,
+          scaleX: Number.isFinite(Number(node.scaleX)) ? Number(node.scaleX) : 1,
+          scaleY: Number.isFinite(Number(node.scaleY)) ? Number(node.scaleY) : 1,
+          opacity: Number.isFinite(Number(node.opacity)) ? Number(node.opacity) : 1,
+          color: typeof node.color === 'string' ? node.color : '#ff3b30',
+          locked: !!node.locked,
+          visible: node.visible !== false,
+          zIndex: Number.isFinite(Number(node.zIndex)) ? Number(node.zIndex) : 0,
+          typeId: String(node.typeId || 'round-11'),
+          groupId: null,
+          meta: typeof node.meta === 'object' && node.meta ? { ...node.meta } : {},
+        }
+      }
+
+      const nestedSymbols = rawSymbols.map((symbol) => {
+        const oldId = String(symbol?.id || '')
+        const nextId = symbolIdMap.get(oldId) || createUnique(symbolUid, usedSymbolIds)
+        const nodes = (Array.isArray(symbol?.nodes) ? symbol.nodes : []).map((node) => {
+          const nextNodeId = createUnique(uid, usedNodeIds)
+          return normalizeSymbolNode(node, nextNodeId)
+        })
+        return {
+          id: nextId,
+          name: typeof symbol?.name === 'string' ? symbol.name : 'Simbolo',
+          nodes,
+        }
+      })
+
+      const bounds = computeNodesBounds(rawNodes, rawSymbols)
+      const centerX = bounds ? bounds.left + bounds.width / 2 : 0
+      const centerY = bounds ? bounds.top + bounds.height / 2 : 0
+
+      const symbolNodes = rawNodes.map((node) => {
+        const nextNodeId = createUnique(uid, usedNodeIds)
+        const normalized = normalizeSymbolNode(node, nextNodeId)
+        normalized.x = Number(normalized.x || 0) - centerX
+        normalized.y = Number(normalized.y || 0) - centerY
+        return normalized
+      })
+
+      const nextSymbolId = createUnique(symbolUid, usedSymbolIds)
+      const symbolName =
+        String(name || '')
+          .replace(/\.json$/i, '')
+          .trim() || 'Simbolo importado'
+      const newSymbol = {
+        id: nextSymbolId,
+        name: symbolName,
+        nodes: symbolNodes,
+      }
+
+      const guideWall = this.ui?.guideWall || null
+      const widthCm = Number(guideWall?.widthCm || this.canvas?.widthCm || 0)
+      const heightCm = Number(guideWall?.heightCm || this.canvas?.heightCm || 0)
+      const widthPx = widthCm * PX_PER_CM
+      const heightPx = heightCm * PX_PER_CM
+      const targetX = Number.isFinite(widthPx) && widthPx > 0 ? widthPx / 2 : 200
+      const targetY = Number.isFinite(heightPx) && heightPx > 0 ? heightPx / 2 : 200
+
+      this.beginHistoryBatch()
+      try {
+        this.symbols = [...(this.symbols || []), ...nestedSymbols, newSymbol]
+        const instanceId = this.addSymbolInstance(nextSymbolId, { x: targetX, y: targetY })
+        if (!selectImported && instanceId) this.clearSelection()
+        this.markDirty('Importar simbolo')
+      } finally {
+        this.endHistoryBatch()
+      }
+
       return true
     },
 
@@ -3978,6 +4330,23 @@ function symbolBoundingBox(symbol, symbols) {
     width: maxX - minX,
     height: maxY - minY,
   }
+}
+
+function computeNodesBounds(nodes, symbols) {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const n of nodes || []) {
+    const box = nodeBoundingBoxForSymbols(n, symbols)
+    if (!box) continue
+    minX = Math.min(minX, box.left)
+    minY = Math.min(minY, box.top)
+    maxX = Math.max(maxX, box.right)
+    maxY = Math.max(maxY, box.bottom)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return { left: minX, top: minY, width: maxX - minX, height: maxY - minY }
 }
 
 function nodeBoundingBoxForSymbols(node, symbols = []) {
