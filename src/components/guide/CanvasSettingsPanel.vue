@@ -30,6 +30,29 @@
             @blur="handleWidthBlur"
           />
           <div class="text-muted xsmall mt-1">{{ widthCmLabel }}</div>
+          <div class="anchor-controls">
+            <span class="text-muted xsmall">Expandir desde</span>
+            <div class="btn-group btn-group-sm" role="group">
+              <button
+                class="btn btn-outline-secondary anchor-btn"
+                type="button"
+                :class="{ active: local.widthAnchor === 'left' }"
+                title="Fijar izquierda"
+                @click="local.widthAnchor = 'left'"
+              >
+                <i class="bi bi-arrow-left"></i>
+              </button>
+              <button
+                class="btn btn-outline-secondary anchor-btn"
+                type="button"
+                :class="{ active: local.widthAnchor === 'right' }"
+                title="Fijar derecha"
+                @click="local.widthAnchor = 'right'"
+              >
+                <i class="bi bi-arrow-right"></i>
+              </button>
+            </div>
+          </div>
         </div>
         <div class="col">
           <label class="form-label small"
@@ -44,6 +67,29 @@
             @blur="handleHeightBlur"
           />
           <div class="text-muted xsmall mt-1">{{ heightCmLabel }}</div>
+          <div class="anchor-controls">
+            <span class="text-muted xsmall">Expandir desde</span>
+            <div class="btn-group btn-group-sm" role="group">
+              <button
+                class="btn btn-outline-secondary anchor-btn"
+                type="button"
+                :class="{ active: local.heightAnchor === 'top' }"
+                title="Fijar arriba"
+                @click="local.heightAnchor = 'top'"
+              >
+                <i class="bi bi-arrow-up"></i>
+              </button>
+              <button
+                class="btn btn-outline-secondary anchor-btn"
+                type="button"
+                :class="{ active: local.heightAnchor === 'bottom' }"
+                title="Fijar abajo"
+                @click="local.heightAnchor = 'bottom'"
+              >
+                <i class="bi bi-arrow-down"></i>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -149,6 +195,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useActiveEditorStore } from '@/stores/editor-context'
+import { PX_PER_CM } from '@/constants/canvas'
 
 const store = useActiveEditorStore()
 
@@ -160,6 +207,8 @@ const local = reactive({
   backgroundColor: store.canvas.backgroundColor || '#ffffff',
   renderQuality: store.ui?.renderQuality || 'high',
   rasterOnPan: !!store.ui?.rasterOnPan,
+  widthAnchor: 'left',
+  heightAnchor: 'top',
 })
 
 const collapsed = ref(false)
@@ -221,28 +270,44 @@ watch(collapsed, (value) => {
   }
 })
 
-function commitDimensions() {
+function commitDimensions({ adjustWidth = false, adjustHeight = false } = {}) {
   const widthCm = Number(local.widthCm)
   const heightCm = Number(local.heightCm)
-  store.setCanvasDimensions({ widthCm, heightCm })
-  const guideWall = store.ui?.guideWall
-  if (guideWall && typeof guideWall === 'object') {
-    store.setGuideWall({
-      ...guideWall,
-      widthCm,
-      heightCm,
-    })
+  const prevWidth = Number(store.canvas.widthCm || 0)
+  const prevHeight = Number(store.canvas.heightCm || 0)
+  const deltaWidth = widthCm - prevWidth
+  const deltaHeight = heightCm - prevHeight
+  const shouldShiftX = adjustWidth && local.widthAnchor === 'right' && Number.isFinite(deltaWidth)
+  const shouldShiftY =
+    adjustHeight && local.heightAnchor === 'bottom' && Number.isFinite(deltaHeight)
+  const dx = shouldShiftX ? deltaWidth * PX_PER_CM : 0
+  const dy = shouldShiftY ? deltaHeight * PX_PER_CM : 0
+
+  store.beginHistoryBatch()
+  try {
+    if (dx || dy) shiftNodes(dx, dy)
+    store.setCanvasDimensions({ widthCm, heightCm })
+    const guideWall = store.ui?.guideWall
+    if (guideWall && typeof guideWall === 'object') {
+      store.setGuideWall({
+        ...guideWall,
+        widthCm,
+        heightCm,
+      })
+    }
+  } finally {
+    store.endHistoryBatch()
   }
 }
 
 function handleWidthBlur() {
   local.widthCm = Math.max(1, Number(local.widthCm || 1))
-  commitDimensions()
+  commitDimensions({ adjustWidth: true })
 }
 
 function handleHeightBlur() {
   local.heightCm = Math.max(1, Number(local.heightCm || 1))
-  commitDimensions()
+  commitDimensions({ adjustHeight: true })
 }
 
 function formatCmIn(value) {
@@ -264,6 +329,18 @@ function applyOffset() {
   store.applyCanvasOffset({ xCm: dx, yCm: dy, relative: true })
   local.offsetX = 0
   local.offsetY = 0
+}
+
+function shiftNodes(dx, dy) {
+  if (!dx && !dy) return
+  const patchById = {}
+  for (const node of store.nodes || []) {
+    const x = Number(node?.x)
+    const y = Number(node?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    patchById[node.id] = { x: x + dx, y: y + dy }
+  }
+  if (Object.keys(patchById).length) store.updateNodes(patchById)
 }
 
 function commitRenderQuality() {
@@ -318,5 +395,28 @@ function resetBackground() {
   font-size: 0.7rem;
   font-weight: 700;
   margin-bottom: 0.25rem;
+}
+
+.anchor-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.anchor-btn {
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.anchor-btn.active {
+  background: rgba(18, 164, 183, 0.15);
+  border-color: rgba(18, 164, 183, 0.5);
+  color: #0f5e6b;
 }
 </style>

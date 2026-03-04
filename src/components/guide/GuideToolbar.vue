@@ -20,6 +20,17 @@
           </button>
         </li>
         <li>
+          <label class="dropdown-item file-item">
+            Abrir guia
+            <input
+              type="file"
+              accept="application/json,.guide.json"
+              class="d-none"
+              @change="(e) => emit('open-guide', e)"
+            />
+          </label>
+        </li>
+        <li>
           <button class="dropdown-item" type="button" @click="emit('save-project')">Guardar</button>
         </li>
         <li>
@@ -97,6 +108,7 @@ defineProps({
 const emit = defineEmits([
   'go-home',
   'new-guide',
+  'open-guide',
   'save-project',
   'save-project-as',
   'export-guide',

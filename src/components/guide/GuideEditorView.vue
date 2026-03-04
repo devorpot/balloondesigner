@@ -4,6 +4,7 @@
       <GuideToolbar
         @go-home="handleGoHome"
         @new-guide="handleNewGuide"
+        @open-guide="handleOpenGuideFile"
         @save-project="handleSaveProject"
         @save-project-as="handleSaveProjectAs"
         @export-guide="exportGuideJsonAll"
@@ -561,6 +562,19 @@ watch(
   },
   { immediate: true },
 )
+
+watch(
+  () => store.selectedId,
+  (value) => {
+    if (!store.ui?.groupEditMode) return
+    const id = String(value || '')
+    if (!id) return
+    const list = selectedLayerNodes.value
+    if (!list.length) return
+    const exists = list.some((node) => String(node?.id) === id)
+    if (exists) rowEditSelectedId.value = id
+  },
+)
 watch(
   activeArcMeta,
   (meta) => {
@@ -628,6 +642,7 @@ const guidePreviewPending = {
   fillColor: null,
 }
 const guideFillPalette = ref(loadGuideFillPalette())
+const guideFileName = ref(loadGuideFileName())
 const selectedGuide = computed(() => {
   const node = store.selectedNode
   if (!node || node.kind !== 'balloon') return null
@@ -846,25 +861,19 @@ function handleToolbarInflate(payload) {
   const delta = Number(payload?.delta)
   if (!Number.isFinite(delta)) return
   if (store.ui?.groupEditMode) {
-    const selectedNode = store.selectedNode
-    const sameGroup = selectedNode && String(selectedNode.groupId) === String(group.id)
-    const isBalloon = selectedNode?.kind === 'balloon'
-    const fallbackId = String(rowEditSelectedId.value || '')
-    const fallbackNode = fallbackId
-      ? selectedLayerNodes.value.find((n) => String(n?.id) === fallbackId)
-      : null
-    const node = sameGroup && isBalloon ? selectedNode : fallbackNode
-    if (!node) return
-    const currentSize = getNodeSizeIn(node)
-    const base = Number.isFinite(currentSize) ? currentSize : selectedLayerMeta.sizeIn
-    const next = clampNumber(base + delta, 1, 60)
-    const radiusPx = (next * 2.54 * PX_PER_CM) / 2
-    store.updateNodeMeta(node.id, { radiusX: radiusPx, radiusY: radiusPx })
+    const targets = getGuideInflateTargets()
+    if (!targets.length) return
+    inflateGuideNodes(targets, delta)
     return
   }
+
   const current = Number(selectedLayerMeta.sizeIn || 0)
-  const next = Number.isFinite(current) ? current + delta : delta
-  updateSelectedLayer({ sizeIn: clampNumber(next, 1, 60) })
+  const fallback = getGroupSizeIn(selectedLayerNodes.value)
+  const base = Number.isFinite(current) && current > 0 ? current : fallback
+  if (!Number.isFinite(base)) return
+  const next = clampNumber(base + delta, 1, 60)
+  selectedLayerMeta.sizeIn = next
+  store.updateLayerGroup?.({ groupId: group.id, sizeIn: next })
 }
 
 function handleToolbarRotateCluster(payload) {
@@ -873,8 +882,11 @@ function handleToolbarRotateCluster(payload) {
   if (selectedLayerMeta.layout !== 'circle') return
   const current = Number(selectedLayerMeta.rotationDeg || 0)
   const step = payload?.shiftKey ? 15 : 5
-  const next = Number.isFinite(current) ? current + step : step
-  updateSelectedLayer({ rotationDeg: next })
+  let next = Number.isFinite(current) ? current + step : step
+  if (next > 180) next = -180
+  if (next < -180) next = 180
+  selectedLayerMeta.rotationDeg = next
+  store.updateLayerGroup?.({ groupId: group.id, rotationDeg: next })
 }
 
 function updateLayerBubbleFill({ id, color }) {
@@ -1579,6 +1591,123 @@ function getNodeSizeIn(node) {
   return Math.round((diameterCm / 2.54) * 100) / 100
 }
 
+function getGroupSizeIn(nodes) {
+  const list = Array.isArray(nodes) ? nodes : []
+  for (const node of list) {
+    const size = getNodeSizeIn(node)
+    if (Number.isFinite(size) && size > 0) return size
+  }
+  return null
+}
+
+function getGuideInflateTargets() {
+  if (store.ui?.groupEditMode) {
+    const fallbackId = String(rowEditSelectedId.value || '')
+    const fallbackNode = fallbackId
+      ? selectedLayerNodes.value.find((n) => String(n?.id) === fallbackId)
+      : null
+    const selectedNode = store.selectedNode
+    const sameGroup =
+      selectedNode && String(selectedNode.groupId) === String(selectedLayerGroup.value?.id)
+    const isBalloon = selectedNode?.kind === 'balloon'
+    const node = fallbackNode || (sameGroup && isBalloon ? selectedNode : null)
+    return node ? [node] : []
+  }
+  return selectedLayerNodes.value.filter((n) => n?.kind === 'balloon')
+}
+
+function inflateGuideNodes(targets, delta) {
+  const list = Array.isArray(targets) ? targets : []
+  if (!list.length) return
+  const groupSizeById = new Map(
+    (store.groups || []).map((g) => [String(g.id), Number(g?.meta?.sizeIn)]),
+  )
+  const entries = []
+  for (const node of list) {
+    const currentSize = getNodeSizeIn(node)
+    if (!Number.isFinite(currentSize)) continue
+    const baseSize = resolveBaseSize(node, groupSizeById)
+    const limits = getInflateLimits(baseSize)
+    if (!limits) continue
+    const nextSize = clampNumber(currentSize + delta, limits.min, limits.max)
+    entries.push({ node, baseSize, start: currentSize, target: nextSize })
+  }
+  if (!entries.length) return
+  animateInflate(entries)
+}
+
+function resolveBaseSize(node, groupSizeById) {
+  const meta = node?.meta || {}
+  const stored = Number(meta.baseSizeIn)
+  if (Number.isFinite(stored) && stored > 0) return stored
+  const groupSize = groupSizeById.get(String(node?.groupId))
+  if (Number.isFinite(groupSize) && groupSize > 0) return nearestBaseSize(groupSize)
+  const current = getNodeSizeIn(node)
+  return Number.isFinite(current) ? nearestBaseSize(current) : 9
+}
+
+function nearestBaseSize(value) {
+  const base = [5, 9, 12]
+  let best = base[0]
+  let bestDiff = Infinity
+  for (const b of base) {
+    const diff = Math.abs(Number(value) - b)
+    if (diff < bestDiff) {
+      bestDiff = diff
+      best = b
+    }
+  }
+  return best
+}
+
+function getInflateLimits(baseSize) {
+  if (baseSize === 5) return { min: 4, max: 6 }
+  if (baseSize === 9) return { min: 7, max: 11 }
+  if (baseSize === 12) return { min: 11, max: 20 }
+  return null
+}
+
+let inflateRaf = null
+function animateInflate(entries) {
+  if (inflateRaf) cancelAnimationFrame(inflateRaf)
+  const startTime = performance.now()
+  const duration = 220
+
+  const frames = entries.map((entry) => ({
+    id: entry.node.id,
+    meta: entry.node.meta && typeof entry.node.meta === 'object' ? entry.node.meta : {},
+    baseSize: entry.baseSize,
+    start: entry.start,
+    target: entry.target,
+  }))
+
+  const step = (now) => {
+    const t = Math.min(1, (now - startTime) / duration)
+    const ease = t * (2 - t)
+    const patchById = {}
+    for (const frame of frames) {
+      const size = frame.start + (frame.target - frame.start) * ease
+      const radiusPx = (size * 2.54 * PX_PER_CM) / 2
+      patchById[frame.id] = {
+        meta: {
+          ...frame.meta,
+          radiusX: radiusPx,
+          radiusY: radiusPx,
+          baseSizeIn: frame.baseSize,
+        },
+      }
+    }
+    if (Object.keys(patchById).length) store.updateNodes?.(patchById)
+    if (t < 1) {
+      inflateRaf = requestAnimationFrame(step)
+    } else {
+      inflateRaf = null
+    }
+  }
+
+  inflateRaf = requestAnimationFrame(step)
+}
+
 function toCm(value, unit) {
   const n = Number(value)
   if (!Number.isFinite(n)) return 0
@@ -1673,6 +1802,34 @@ function promptGuideFileName(baseName) {
   const base = raw ? stripGuideSuffix(raw) : fallback
   const normalized = String(base || '').trim() || fallback
   return `${normalized}.guide.json`
+}
+
+function normalizeGuideFileName(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return ''
+  const base = stripGuideSuffix(raw)
+  if (!base) return ''
+  return `${base}.guide.json`
+}
+
+function loadGuideFileName() {
+  try {
+    return String(localStorage.getItem('guide_last_filename') || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+function saveGuideFileName(value) {
+  try {
+    if (!value) {
+      localStorage.removeItem('guide_last_filename')
+      return
+    }
+    localStorage.setItem('guide_last_filename', String(value))
+  } catch {
+    // ignore
+  }
 }
 
 function readFileAsDataUrl(file) {
@@ -1967,6 +2124,101 @@ async function onImportGuideFile(e) {
   }
 }
 
+async function handleOpenGuideFile(e) {
+  const file = e?.target?.files?.[0] || null
+  if (e?.target) e.target.value = ''
+  if (!file) return
+
+  if (
+    !String(file?.name || '')
+      .toLowerCase()
+      .endsWith('.guide.json')
+  ) {
+    window.alert('Selecciona un archivo .guide.json')
+    return
+  }
+
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    const ok = store.importJsonObject?.(data)
+    if (ok) {
+      window.alert('Guia abierta correctamente.')
+      const nextName = normalizeGuideFileName(file?.name || '')
+      guideFileName.value = nextName
+      saveGuideFileName(nextName)
+    }
+  } catch {
+    window.alert('No se pudo abrir la guia. Verifica que el JSON sea válido.')
+  }
+}
+
+function handleSaveGuideFile(forcePrompt = false) {
+  const baseName = String(projects.activeProject?.name || '').trim() || 'guia'
+  let fileName = normalizeGuideFileName(guideFileName.value || '')
+  if (!fileName || forcePrompt) {
+    fileName = promptGuideFileName(baseName)
+  }
+  if (!fileName) return
+  guideFileName.value = fileName
+  saveGuideFileName(fileName)
+  store.exportJson?.({ fileName })
+  store.markSaved?.()
+}
+
+function applyCropSelection() {
+  const rect = store.ui?.cropRect
+  if (!rect) return
+  const width = Number(rect.width)
+  const height = Number(rect.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 1 || height <= 1) return
+  const x = Number(rect.x) || 0
+  const y = Number(rect.y) || 0
+
+  const widthCm = Math.max(1, Math.round((width / PX_PER_CM) * 100) / 100)
+  const heightCm = Math.max(1, Math.round((height / PX_PER_CM) * 100) / 100)
+  const dx = -x
+  const dy = -y
+
+  store.beginHistoryBatch()
+  try {
+    shiftNodesByPx(dx, dy)
+    store.setCanvasDimensions({ widthCm, heightCm })
+    const guideWall = store.ui?.guideWall
+    if (guideWall && typeof guideWall === 'object') {
+      store.setGuideWall({
+        ...guideWall,
+        widthCm,
+        heightCm,
+      })
+    }
+    store.setView({
+      x: (store.view?.x || 0) - dx,
+      y: (store.view?.y || 0) - dy,
+      scale: store.view?.scale || 1,
+    })
+  } finally {
+    store.endHistoryBatch()
+  }
+
+  if (store.ui) {
+    store.ui.cropMode = false
+    store.ui.cropRect = null
+  }
+}
+
+function shiftNodesByPx(dx, dy) {
+  if (!dx && !dy) return
+  const patchById = {}
+  for (const node of store.nodes || []) {
+    const x = Number(node?.x)
+    const y = Number(node?.y)
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue
+    patchById[node.id] = { x: x + dx, y: y + dy }
+  }
+  if (Object.keys(patchById).length) store.updateNodes(patchById)
+}
+
 async function handleImportGuideImage(e) {
   const file = e?.target?.files?.[0] || null
   if (e?.target) e.target.value = ''
@@ -2043,10 +2295,12 @@ function handleNewGuide() {
 
 function handleSaveProject() {
   saveProject()
+  handleSaveGuideFile()
 }
 
 function handleSaveProjectAs() {
   saveProjectAs()
+  handleSaveGuideFile(true)
 }
 
 function handleImportJsonFile(e) {
@@ -2315,6 +2569,20 @@ function onKeyDown(e) {
   if (isTypingTarget(e)) return
   const key = e.key.toLowerCase()
   const isCmd = e.metaKey || e.ctrlKey
+
+  if (store.ui?.cropMode && key === 'enter') {
+    e.preventDefault()
+    applyCropSelection()
+    return
+  }
+
+  if (store.ui?.cropMode && key === 'escape') {
+    if (store.ui) {
+      store.ui.cropMode = false
+      store.ui.cropRect = null
+    }
+    return
+  }
 
   if (isCmd && key === 's') {
     e.preventDefault()

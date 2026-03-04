@@ -13,6 +13,15 @@
       <button
         class="control-btn"
         type="button"
+        :class="{ active: cropMode }"
+        title="Recortar area"
+        @click="toggleCrop"
+      >
+        <i class="bi bi-crop"></i>
+      </button>
+      <button
+        class="control-btn"
+        type="button"
         :class="{ active: panMode }"
         title="Mover lienzo"
         @click="setPan(true)"
@@ -72,6 +81,7 @@ import { useActiveEditorStore } from '@/stores/editor-context'
 const store = useActiveEditorStore()
 
 const panMode = computed(() => !!store.ui?.panMode)
+const cropMode = computed(() => !!store.ui?.cropMode)
 const zoomLabel = computed(() => `${Math.round((store.view?.scale || 1) * 100)}%`)
 const displayScale = computed(() => Number(store.canvas?.displayScale || 1))
 const displayScaleLabel = computed(() => `${Math.round(displayScale.value * 100)}%`)
@@ -139,6 +149,18 @@ function stepZoom() {
 
 function setPan(value) {
   store.setPanMode(!!value)
+  if (store.ui) store.ui.cropMode = false
+}
+
+function toggleCrop() {
+  if (!store.ui) return
+  const next = !store.ui.cropMode
+  store.ui.cropMode = next
+  store.setPanMode(false)
+  if (next) {
+    store.clearSelection?.()
+    store.ui.cropRect = null
+  }
 }
 
 function setViewSide(side) {

@@ -325,6 +325,7 @@
             </template>
 
             <v-rect v-if="marquee.active" :config="marqueeRectConfig" />
+            <v-rect v-if="cropRectConfig" :config="cropRectConfig" />
             <v-group v-if="selectionLabel" :config="{ listening: false }">
               <v-rect :config="selectionLabelBg" />
               <v-text :config="selectionLabel" />
@@ -362,6 +363,7 @@ const symbolEdit = computed(() => store.ui?.symbolEdit || { active: false })
 const symbolEditActive = computed(() => !!symbolEdit.value?.active)
 const activeSymbolInstanceId = computed(() => symbolEdit.value?.instanceId || null)
 const symbolsById = computed(() => new Map((store.symbols || []).map((s) => [String(s.id), s])))
+const cropMode = computed(() => !!store.ui?.cropMode)
 const selectedGroup = computed(() => {
   const gid = store.selectedGroupId
   if (!gid) return null
@@ -1040,6 +1042,12 @@ watch(panMode, (value) => {
   setCursor(value ? 'grab' : 'default')
 })
 
+watch(cropMode, (value) => {
+  if (value) return
+  cropBox.value.active = false
+  if (store.ui) store.ui.cropRect = null
+})
+
 /* ================== NODE CONFIGS ================== */
 function groupConfig(n) {
   const depthOpacity = topViewOpacityFactor(n)
@@ -1059,6 +1067,7 @@ function groupConfig(n) {
       !n?.meta?.guideFixed &&
       !store.ui?.bucketMode &&
       !store.ui?.inflateMode &&
+      !cropMode.value &&
       !panning.value &&
       !panMode.value &&
       !spaceDown.value, // evita drag de nodos mientras paneas
@@ -1154,6 +1163,7 @@ function symbolInstanceConfig(n) {
       !n?.meta?.guideFixed &&
       !store.ui?.bucketMode &&
       !store.ui?.inflateMode &&
+      !cropMode.value &&
       !panning.value &&
       !panMode.value &&
       !spaceDown.value,
@@ -1193,6 +1203,7 @@ function symbolChildGroupConfig(child, instanceId) {
       !child.locked &&
       !store.ui?.bucketMode &&
       !store.ui?.inflateMode &&
+      !cropMode.value &&
       !panning.value &&
       !panMode.value &&
       !spaceDown.value,
@@ -2092,6 +2103,10 @@ function onStagePointerLeave() {
 
 /* ================== SELECTION ================== */
 function onNodePointerDown(node, e) {
+  if (cropMode.value) {
+    beginCrop(e)
+    return
+  }
   if (symbolEditActive.value) return
   // si estamos en pan, no seleccionar
   if (panning.value || panMode.value || spaceDown.value) return
@@ -2811,6 +2826,11 @@ function onStagePointerDown(e) {
   const stage = getStage()
   if (!stage) return
 
+  if (cropMode.value) {
+    beginCrop(e)
+    return
+  }
+
   if (groupEditMode.value) return
 
   // si estás en panMode, pan con click izquierdo también
@@ -2841,6 +2861,16 @@ function onStagePointerDown(e) {
 }
 
 function onDocMouseMove(e) {
+  if (cropBox.value.active) {
+    const stage = getStage()
+    if (!stage) return
+    const cp = getCanvasPointer(stage)
+    if (!cp) return
+    cropBox.value.end = { ...cp }
+    updateCropRect()
+    return
+  }
+
   if (marquee.value.active) {
     const stage = getStage()
     if (!stage) return
@@ -2855,6 +2885,12 @@ function onDocMouseMove(e) {
 }
 
 function onDocMouseUp() {
+  if (cropBox.value.active) {
+    cropBox.value.active = false
+    updateCropRect()
+    return
+  }
+
   if (marquee.value.active) {
     const x1 = marquee.value.start.x
     const y1 = marquee.value.start.y
@@ -2965,6 +3001,12 @@ const marquee = ref({
   append: false,
 })
 
+const cropBox = ref({
+  active: false,
+  start: { x: 0, y: 0 },
+  end: { x: 0, y: 0 },
+})
+
 const marqueeRectConfig = computed(() => {
   const x1 = marquee.value.start.x
   const y1 = marquee.value.start.y
@@ -2987,6 +3029,70 @@ const marqueeRectConfig = computed(() => {
     listening: false,
   }
 })
+
+const cropRectConfig = computed(() => {
+  const rect = resolveCropRect()
+  if (!rect) return null
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+    stroke: '#1b74e4',
+    strokeWidth: 1,
+    dash: [6, 4],
+    fill: 'rgba(27,116,228,0.12)',
+    listening: false,
+  }
+})
+
+function resolveCropRect() {
+  if (cropBox.value.active) {
+    const x1 = cropBox.value.start.x
+    const y1 = cropBox.value.start.y
+    const x2 = cropBox.value.end.x
+    const y2 = cropBox.value.end.y
+    return {
+      x: Math.min(x1, x2),
+      y: Math.min(y1, y2),
+      width: Math.abs(x2 - x1),
+      height: Math.abs(y2 - y1),
+    }
+  }
+  const rect = store.ui?.cropRect
+  if (!rect) return null
+  const width = Number(rect.width)
+  const height = Number(rect.height)
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+  return {
+    x: Number(rect.x) || 0,
+    y: Number(rect.y) || 0,
+    width,
+    height,
+  }
+}
+
+function beginCrop(e) {
+  const stage = getStage()
+  if (!stage) return
+  const cp = getCanvasPointer(stage)
+  if (!cp) return
+  cropBox.value.active = true
+  cropBox.value.start = { ...cp }
+  cropBox.value.end = { ...cp }
+  updateCropRect()
+  if (e?.evt?.preventDefault) e.evt.preventDefault()
+}
+
+function updateCropRect() {
+  if (!store.ui) return
+  const rect = resolveCropRect()
+  if (!rect || rect.width < 1 || rect.height < 1) {
+    store.ui.cropRect = null
+    return
+  }
+  store.ui.cropRect = rect
+}
 
 /* ================== CONTEXT MENU ================== */
 const menu = ref({

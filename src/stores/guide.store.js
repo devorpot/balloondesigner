@@ -29,6 +29,20 @@ function normalizeCm(value, fallback) {
   return Math.min(MAX_CANVAS_CM, Math.max(MIN_CANVAS_CM, n))
 }
 
+function getNodeSizeIn(nodes) {
+  const list = Array.isArray(nodes) ? nodes : []
+  for (const node of list) {
+    const rx = Number(node?.meta?.radiusX)
+    const ry = Number(node?.meta?.radiusY)
+    const base = Math.max(rx, ry)
+    if (!Number.isFinite(base) || base <= 0) continue
+    const diameterCm = (base * 2) / PX_PER_CM
+    const sizeIn = Math.round((diameterCm / 2.54) * 100) / 100
+    if (Number.isFinite(sizeIn) && sizeIn > 0) return sizeIn
+  }
+  return null
+}
+
 function serializeGuideNode(node) {
   const kind =
     node?.kind === 'text'
@@ -96,6 +110,7 @@ export const useGuideStore = defineStore('guide-editor', {
       maxVisibleNodes: 2500,
       guideRemoveOnFill: true,
       groupEditMode: false,
+      cropMode: false,
       viewSide: 'front',
       stackGrid: {
         enabled: false,
@@ -2521,6 +2536,7 @@ export const useGuideStore = defineStore('guide-editor', {
           id: g.id,
           name: g.name,
           childIds: Array.isArray(g.childIds) ? g.childIds : [],
+          meta: g.meta && typeof g.meta === 'object' ? g.meta : {},
         })),
         view: { ...this.view },
         settings: { ...this.settings },
@@ -2533,6 +2549,8 @@ export const useGuideStore = defineStore('guide-editor', {
               : [],
           },
         },
+        guideWall:
+          this.ui?.guideWall && typeof this.ui.guideWall === 'object' ? this.ui.guideWall : null,
         canvas: {
           widthCm: Number(this.canvas.widthCm || 0),
           heightCm: Number(this.canvas.heightCm || 0),
@@ -2629,9 +2647,48 @@ export const useGuideStore = defineStore('guide-editor', {
           id: String(g?.id || groupUid()),
           name: typeof g?.name === 'string' ? g.name : 'Grupo',
           childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
         }))
         .filter((g) => g.childIds.length)
       applyGroupMembership(this)
+
+      this.groups = (Array.isArray(data.groups) ? data.groups : [])
+        .map((g) => ({
+          id: String(g?.id || groupUid()),
+          name: typeof g?.name === 'string' ? g.name : 'Grupo',
+          childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
+        }))
+        .filter((g) => g.childIds.length)
+      applyGroupMembership(this)
+
+      this.groups = (Array.isArray(data.groups) ? data.groups : [])
+        .map((g) => ({
+          id: String(g?.id || groupUid()),
+          name: typeof g?.name === 'string' ? g.name : 'Grupo',
+          childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
+        }))
+        .filter((g) => g.childIds.length)
+      applyGroupMembership(this)
+
+      this.groups = (Array.isArray(data.groups) ? data.groups : [])
+        .map((g) => ({
+          id: String(g?.id || groupUid()),
+          name: typeof g?.name === 'string' ? g.name : 'Grupo',
+          childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
+        }))
+        .filter((g) => g.childIds.length)
+
+      this.groups = (Array.isArray(data.groups) ? data.groups : [])
+        .map((g) => ({
+          id: String(g?.id || groupUid()),
+          name: typeof g?.name === 'string' ? g.name : 'Grupo',
+          childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
+        }))
+        .filter((g) => g.childIds.length)
       const defaults = createDefaultCanvasSettings()
       const canvasPayload = data.canvas || {}
       this.canvas = {
@@ -2679,7 +2736,12 @@ export const useGuideStore = defineStore('guide-editor', {
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
+      if (data.guideWall && typeof data.guideWall === 'object') {
+        this.ui.guideWall = data.guideWall
+      }
+
       this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+      this.ui.groupEditMode = false
 
       this.clearSelection()
       this.autosave.isDirty = false
@@ -2762,6 +2824,7 @@ export const useGuideStore = defineStore('guide-editor', {
           id: String(g?.id || groupUid()),
           name: typeof g?.name === 'string' ? g.name : 'Grupo',
           childIds: Array.isArray(g?.childIds) ? g.childIds.map((id) => String(id)) : [],
+          meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
         }))
         .filter((g) => g.childIds.length)
       applyGroupMembership(this)
@@ -2813,7 +2876,12 @@ export const useGuideStore = defineStore('guide-editor', {
         if (Array.isArray(sg.recentOrigins)) this.ui.stackGrid.recentOrigins = sg.recentOrigins
       }
 
+      if (data.guideWall && typeof data.guideWall === 'object') {
+        this.ui.guideWall = data.guideWall
+      }
+
       this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+      this.ui.groupEditMode = false
 
       this.clearSelection()
       this.autosave.isDirty = false
@@ -2845,6 +2913,7 @@ export const useGuideStore = defineStore('guide-editor', {
       this.settings = { ...this.settings, grid: true, snap: false, snapStep: 10 }
       this.canvas = createDefaultCanvasSettings()
       this.ui.symbolEdit = { active: false, symbolId: null, instanceId: null, selectedIds: [] }
+      this.ui.groupEditMode = false
 
       if (clearAutosave) {
         this.clearSavedDesign()
@@ -2917,12 +2986,14 @@ export const useGuideStore = defineStore('guide-editor', {
               childIds: (Array.isArray(g.childIds) ? g.childIds : []).filter((id) =>
                 nodeIds.has(String(id)),
               ),
+              meta: g.meta && typeof g.meta === 'object' ? g.meta : {},
             }))
             .filter((g) => g.childIds.length)
         : (this.groups || []).map((g) => ({
             id: g.id,
             name: g.name,
             childIds: Array.isArray(g.childIds) ? g.childIds : [],
+            meta: g.meta && typeof g.meta === 'object' ? g.meta : {},
           }))
 
       let adjustedNodes = nodes
@@ -3028,6 +3099,7 @@ export const useGuideStore = defineStore('guide-editor', {
           childIds: (Array.isArray(g.childIds) ? g.childIds : []).filter((id) =>
             nodeIdSet.has(String(id)),
           ),
+          meta: g.meta && typeof g.meta === 'object' ? g.meta : {},
         }))
         .filter((g) => g.childIds.length)
 
@@ -3305,6 +3377,7 @@ export const useGuideStore = defineStore('guide-editor', {
         id: String(g.id || uid()),
         name: typeof g.name === 'string' ? g.name : 'Grupo',
         childIds: Array.isArray(g.childIds) ? g.childIds : [],
+        meta: typeof g?.meta === 'object' && g.meta ? g.meta : {},
       }))
 
       const defaults = createDefaultCanvasSettings()
@@ -3863,11 +3936,38 @@ export const useGuideStore = defineStore('guide-editor', {
       const nodeById = new Map(this.nodes.map((n) => [String(n.id), n]))
       const existing = (group.childIds || []).map((id) => nodeById.get(String(id))).filter(Boolean)
 
+      const prevSizeInRaw = Number(group.meta?.sizeIn)
+      const prevSizeInFallback = getNodeSizeIn(existing)
+      const prevSizeIn = Number.isFinite(prevSizeInRaw) ? prevSizeInRaw : prevSizeInFallback
+      const deltaSizeIn = Number.isFinite(prevSizeIn) ? nextSizeIn - prevSizeIn : 0
+      const pushPx = Math.abs(deltaSizeIn) * 2.54 * PX_PER_CM
+      const deltaSign = deltaSizeIn > 0 ? 1 : deltaSizeIn < 0 ? -1 : 0
+
       const yValues = existing.map((n) => Number(n.y)).filter((y) => Number.isFinite(y))
       const avgY = yValues.length ? yValues.reduce((sum, v) => sum + v, 0) / yValues.length : null
-      const rowY = Number.isFinite(avgY)
+      let rowY = Number.isFinite(avgY)
         ? clamp(avgY, radiusPx, heightPx - radiusPx)
         : heightPx - radiusPx
+
+      if (pushPx > 0.01 && deltaSign) {
+        let bottomMostY = null
+        for (const other of this.groups || []) {
+          const otherNodes = (other?.childIds || [])
+            .map((id) => nodeById.get(String(id)))
+            .filter(Boolean)
+          if (!otherNodes.length) continue
+          const ys = otherNodes.map((n) => Number(n.y)).filter((y) => Number.isFinite(y))
+          if (!ys.length) continue
+          const avg = ys.reduce((sum, v) => sum + v, 0) / ys.length
+          if (!Number.isFinite(avg)) continue
+          if (bottomMostY === null || avg > bottomMostY) bottomMostY = avg
+        }
+        const isBottomMost = Number.isFinite(bottomMostY) && rowY >= bottomMostY - 0.01
+        if (!isBottomMost) {
+          const shift = pushPx * 0.5 * deltaSign
+          rowY = clamp(rowY - shift, radiusPx, heightPx - radiusPx)
+        }
+      }
 
       const xValues = existing.map((n) => Number(n.x)).filter((x) => Number.isFinite(x))
       const avgX = xValues.length ? xValues.reduce((sum, v) => sum + v, 0) / xValues.length : null
@@ -3938,6 +4038,40 @@ export const useGuideStore = defineStore('guide-editor', {
       const keep = existing.slice(0, nextCount)
       const remove = existing.slice(nextCount)
       const patchById = {}
+      if (pushPx > 0.01 && deltaSign) {
+        const isLayerGroup = (g, nodes) => {
+          if (g?.meta?.kind === 'layer') return true
+          if (/^(fila|cluster)\b/i.test(String(g?.name || ''))) return true
+          return (nodes || []).some((n) => n?.meta?.guideLine)
+        }
+        for (const other of this.groups || []) {
+          if (!other || String(other.id) === String(group.id)) continue
+          const otherNodes = (other.childIds || [])
+            .map((id) => nodeById.get(String(id)))
+            .filter(Boolean)
+          if (!otherNodes.length) continue
+          if (!isLayerGroup(other, otherNodes)) continue
+          const ys = otherNodes.map((n) => Number(n.y)).filter((y) => Number.isFinite(y))
+          if (!ys.length) continue
+          const avg = ys.reduce((sum, v) => sum + v, 0) / ys.length
+          const distance = Number.isFinite(avg) ? Math.abs(avg - rowY) : 0
+          const influence = Math.max(step || 0, diameter || 0, PX_PER_CM * 4)
+          const factor = influence > 0 ? 1 / (1 + distance / influence) : 1
+          const shift = pushPx * factor
+
+          if (Number.isFinite(avg) && avg < rowY - 0.01) {
+            for (const node of otherNodes) {
+              const y = Number(node?.y)
+              if (!Number.isFinite(y)) continue
+              patchById[node.id] = {
+                ...(patchById[node.id] || {}),
+                y: y - shift * deltaSign,
+              }
+            }
+            continue
+          }
+        }
+      }
       for (let i = 0; i < keep.length; i += 1) {
         const node = keep[i]
         const pos = positions[i]
