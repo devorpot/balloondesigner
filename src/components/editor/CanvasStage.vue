@@ -351,6 +351,7 @@ import ContextMenu from '@/components/editor/ContextMenu.vue'
 
 const store = useActiveEditorStore()
 const isGuideStore = computed(() => store?.$id === 'guide-editor' || !!store?.ui?.isGuideStore)
+const isGuideEditor = computed(() => store?.$id === 'guide-editor')
 const catalog = useCatalogStore()
 const emit = defineEmits([
   'guide-paint',
@@ -3356,9 +3357,104 @@ function rotateGroupSelection(delta) {
   store.beginHistoryBatch()
   try {
     store.updateNodes(patchById)
+    if (isGuideEditor.value && store.selectedGroupId) {
+      resolveGuideClusterCollision(store.selectedGroupId)
+    }
   } finally {
     store.endHistoryBatch()
   }
+}
+
+function resolveGuideClusterCollision(groupId) {
+  const gid = String(groupId || '')
+  if (!gid) return
+  const groups = Array.isArray(store.groups) ? store.groups : []
+  const nodes = Array.isArray(store.nodes) ? store.nodes : []
+  const nodeById = new Map(nodes.map((n) => [String(n.id), n]))
+  const target = groups.find((g) => String(g.id) === gid)
+  if (!target || !Array.isArray(target.childIds)) return
+  const targetNodes = target.childIds.map((id) => nodeById.get(String(id))).filter(Boolean)
+  const targetBox = groupBoundingBox(targetNodes)
+  if (!targetBox) return
+
+  const isLayerGroup = (g, list) => {
+    if (g?.meta?.kind === 'layer') return true
+    if (/^(fila|cluster)\b/i.test(String(g?.name || ''))) return true
+    return (list || []).some((n) => n?.meta?.guideLine)
+  }
+
+  let maxOverlap = 0
+  let maxAboveMaxY = null
+  let maxBelowOverlap = 0
+  const groupsAbove = []
+  for (const group of groups) {
+    if (!group || String(group.id) === gid) continue
+    const groupNodes = (group.childIds || []).map((id) => nodeById.get(String(id))).filter(Boolean)
+    if (!groupNodes.length) continue
+    if (!isLayerGroup(group, groupNodes)) continue
+    const box = groupBoundingBox(groupNodes)
+    if (!box) continue
+    if (box.minY < targetBox.minY) {
+      groupsAbove.push(groupNodes)
+      const overlap = box.maxY - targetBox.minY
+      if (overlap > maxOverlap) maxOverlap = overlap
+      if (maxAboveMaxY === null || box.maxY > maxAboveMaxY) maxAboveMaxY = box.maxY
+      continue
+    }
+    if (box.minY >= targetBox.minY) {
+      const overlap = targetBox.maxY - box.minY
+      if (overlap > maxBelowOverlap) maxBelowOverlap = overlap
+    }
+  }
+
+  const shiftUp = maxOverlap > 0.5 ? maxOverlap + 2 : 0
+  let shiftDown = 0
+  if (!shiftUp && Number.isFinite(maxAboveMaxY)) {
+    const gap = targetBox.minY - maxAboveMaxY
+    if (gap > 0.5) shiftDown = gap
+  }
+  const shift = shiftUp || shiftDown
+  if (!shift) return
+
+  const patchById = {}
+  for (const groupNodes of groupsAbove) {
+    for (const node of groupNodes) {
+      const y = Number(node?.y)
+      if (!Number.isFinite(y)) continue
+      patchById[node.id] = { y: y + (shiftDown ? shiftDown : -shiftUp) }
+    }
+  }
+  if (Object.keys(patchById).length) store.updateNodes(patchById)
+
+  if (maxBelowOverlap > 0.5 && store.selectedGroupId) {
+    const gid = String(store.selectedGroupId)
+    const selectedNodes = targetNodes
+    const moveUp = maxBelowOverlap + 2
+    const patchTarget = {}
+    for (const node of selectedNodes) {
+      const y = Number(node?.y)
+      if (!Number.isFinite(y)) continue
+      patchTarget[node.id] = { y: y - moveUp }
+    }
+    if (Object.keys(patchTarget).length) store.updateNodes(patchTarget)
+  }
+}
+
+function groupBoundingBox(list) {
+  if (!Array.isArray(list) || !list.length) return null
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const node of list) {
+    const box = nodeBoundingBox(node)
+    minX = Math.min(minX, box.x)
+    minY = Math.min(minY, box.y)
+    maxX = Math.max(maxX, box.x + box.width)
+    maxY = Math.max(maxY, box.y + box.height)
+  }
+  if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null
+  return { minX, minY, maxX, maxY }
 }
 
 function onToolbarBringForward() {

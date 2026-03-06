@@ -131,7 +131,7 @@
               <div class="text-muted xsmall mt-1">{{ gapCmLabel }}</div>
             </div>
             <div class="col-12" v-if="layoutLabel === 'Circulo'">
-              <label class="form-label small">Rotacion (grados)</label>
+              <label class="form-label small">Rotacion horizontal (grados)</label>
               <input
                 :value="rotationDeg"
                 class="form-control form-control-sm"
